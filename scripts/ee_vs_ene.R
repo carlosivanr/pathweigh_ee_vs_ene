@@ -1,3 +1,23 @@
+# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# Carlos Rodriguez, PhD. Dept. of Family Medicine, CU Anschutz Medical Campus
+
+# Eligible and enrolled vs eligible and not-enrolled paper
+# Description:
+# This script is the first step in attempting to put together the data, tables
+# and figures for the PATHWEIGH EE vs ENE paper.
+
+# Requirements:
+# Depends on a data set derived from the baseline characteristics processing
+# script. The data in the baseline characteristics paper were initally only
+# processed for those with index visits (i.e. EE only). Additional processing
+# was needed to include ENE. The data are found in the data directory as 
+# seq_df2*.rda. Seq_df2 was a subset of the join2 dataframe and have been
+# renamed as visits. Seq_df2 was a subset of visits that where the encounter
+# date was equal to or greater than the index data essentially filtering for all
+# visits after the index date and has been renamed as visits_post_id.
+
+
+# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 # Load Packages ----------------------------------------------------------------
 pacman::p_load(here,         # For managing directory paths
