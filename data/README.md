@@ -12,6 +12,7 @@ seq_df2 was created with the 02_Rimage_to_analysis_datasets_v2.R script with the
 
 Nota Bene
 In order to achieve the values reported in the baseline characteristics paper, the data need to be filtered for visits in which the encounter date is equal to the index date, WPV_v2 is equal to 1, and any encounter with out a valid NPI is dropped.
-- [seq_df2 %>% drop_na(ProviderNpi) %>% filter(EncounterDate == IndexDate, Seq ==1, WPV_v2 == 1))]
-
+```{r}
+seq_df2 %>% drop_na(ProviderNpi) %>% filter(EncounterDate == IndexDate, Seq ==1, WPV_v2 == 1))]
+```
 The difference between v1 and v2 deals with how "repeat encounters" are handled. In v1, visits that are grouped by patient, and sorted then the visit with the most information is retained. In v2, visits are grouped by encounter id, sorted, then the visit with information is retained. The difference is subtle, but leads to the same number of WPVs.
