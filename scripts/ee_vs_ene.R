@@ -27,8 +27,6 @@ pacman::p_load(here,         # For managing directory paths
                tictoc,       # For timing and benchmarking functions
                gtsummary)    # For creating tables
 
-# Load data --------------------------------------------------------------------
-
 ## Load seq_df2 ----------------------------------------------------------------
 # Keep in workspace as a back up
 load(
@@ -39,35 +37,40 @@ load(
 # Copy seq_df2 as visits for newer nomenclature of data frames
 visits <- seq_df2
 
-# Fix the index dates, because in seq_df2 index dates are assigned to WPVs even
-# if there is no valid NPI. The following section, re-assigns index dates only 
-# to visits for which a valid NPI is available.
-visits %<>% 
-  select(-IndexDate, -Seq)
 
-# Create the tempdat.id dataframe
-# Patients were assigned to the sequence of the clinic where they had an eligible visit (satisfying Age, BMI, and WPV indicator)
-# The goal here is to identify the index visits. Compared to baseline char
-# there are an additional 11 patients that should have been included.
-tempdat.id <- visits %>%
-  drop_na(ProviderNpi) %>% # To reproduce baseline car, this line must be commented out
-  filter(Eligible == 1,
-         WPV >= 1) %>%
-  group_by(Arb_PersonId,
-           intervention) %>%
-  arrange(Arb_PersonId,
-          EncounterDate) %>%
-  slice_head() %>%
-  mutate(IndexDate = EncounterDate, Seq = GroupID) %>%
-  ungroup()
+# # *** Determine if the missing visits with valid npi need to be fixed ----------
+# # In seq_df2 index dates are assigned to WPVs even if there is no valid NPI. 
+# # The following section, re-assigns index dates only to visits for which a valid
+# # NPI is available. Index dates are assigned to only eligible and enrolled
+#   visits %<>% 
+#     select(-IndexDate, -Seq)
+#   
+#   # Create the tempdat.id dataframe
+#   # Patients were assigned to the sequence of the clinic where they had an 
+#   # eligible visit (satisfying Age, BMI, and WPV criteria)
+#   # Compared to baseline characteristics paper, there are an additional 11 
+#   # patients that should have been included, but were not.
+#   tempdat.id <- visits %>%
+#     drop_na(ProviderNpi) %>% # To reproduce baseline car, this line must be commented out
+#     filter(Eligible == 1,
+#            WPV >= 1) %>%
+#     group_by(Arb_PersonId,
+#              intervention) %>%
+#     arrange(Arb_PersonId,
+#             EncounterDate) %>%
+#     slice_head() %>%
+#     mutate(IndexDate = EncounterDate, Seq = GroupID) %>%
+#     ungroup()
+#   
+#   # Join the IndexDate and Seq columns to the visits data frame
+#   visits <- left_join(visits, tempdat.id[
+#     ,c("Arb_PersonId","intervention","IndexDate","Seq")],
+#     by = c("Arb_PersonId","intervention"))
+#   
+#   # Create the Cohort column based on Seq to use when displaying tables
+#   visits$Cohort=paste0("Cohort ", visits$Seq)
 
-# Join the IndexDate and Seq columns to the visits data frame
-visits <- left_join(visits, tempdat.id[
-  ,c("Arb_PersonId","intervention","IndexDate","Seq")],
-  by = c("Arb_PersonId","intervention"))
 
-# Create the Cohort column based on Seq to use when displaying tables
-visits$Cohort=paste0("Cohort ", visits$Seq)
 
 # Process data -----------------------------------------------------------------
 # - BMI_use to BMI - Set names BMI_use was old, BMI is new
@@ -84,7 +87,7 @@ visits %<>%
 # Reproduce Table 1 from Baseline Characteristics paper ------------------------
 # Table using the indexdate to identify those that are enrolled
 visits %>%
- # drop_na(ProviderNpi) %>%
+  drop_na(ProviderNpi) %>%
   filter(EncounterDate == IndexDate) %>% 
   select(Cohort, Age, Sex, Race_Ethnicity, Insurance) %>% 
   tbl_summary(by = Cohort,
@@ -118,14 +121,31 @@ visits %>%
   add_overall()
 
 
-# %%%%%%%%%%%%%%%%%%%%%% FENCE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# Create eligible and enrolled -------------------------------------------------
+# Clean up the 11 patients who were not captured in the bl char paper
+# Unique person_ids for all that were supposed to be in baseline
+all_unique_ee_ids <- 
+  visits %>% 
+  filter(Enrolled == 1) %>%
+  distinct(Arb_PersonId)
 
-# Create eligible and enrolled: Must have had a WPV ----------------------------
+# EE defined as meeting eligibility criteria and at least one WPV
 # Enrolled == 1 is not enough to satisfy to the patient level because of 
-# multiple visits per patients
+# multiple visits per patients, but EncounterDate == IndexDate does the job bc
+# only those that have a WPV are assigned an IndexDate.
 ee <- visits %>%
   filter(EncounterDate == IndexDate)
 
+# What are the IDs that are in visits, but not all_unique_ids
+ids_to_exclude <- all_unique_ee_ids %>%
+  filter(!Arb_PersonId %in% ee$Arb_PersonId)
+
+# Exclude the 11 patients
+visits %<>%
+  filter(!Arb_PersonId %in% ids_to_exclude$Arb_PersonId)
+
+
+# Check ee --------------------------------------------------------------------- 
 # Do all visits in ee have matching encounter and index dates?
 nrow(visits %>% filter(EncounterDate == IndexDate)) == dim(ee)[1]
 
@@ -133,26 +153,18 @@ nrow(visits %>% filter(EncounterDate == IndexDate)) == dim(ee)[1]
 nrow(ee %>% filter(Enrolled == 1)) == dim(ee)[1]
 
 # Is the number of unique enrolled patients equal to the number of patients in ee
+# Should match if the 11 patients are excluded
 visits %>% filter(Enrolled == 1) %>% pull(Arb_PersonId) %>% n_distinct() == dim(ee)[1]
 
 # Check that there are no patients in ee that are coded in intervention
 nrow(ee %>% filter(intervention == 1)) == 0
 
 # Check that only 3 Cohorts are available 
-length(table(ee$Cohort))
+length(table(ee$Cohort)) == 3
 
 
-
-# *** LEFT OFF HERE ***
-# Eligible but not enrolled: Meet eligibility criteria but no WPV --------------
-# *** Many cohort values are NA. Why is that?
-# *** Sort categories in table by descending %/frequency
-# *** Need to address how to modify Cohort NA and 
-
-# How to handle patients with more than one visit, which cohort to assign them
-# to if more than one?
-# - filter visits by patient id not in ee
-# - 
+# Create eligible but not enrolled ---------------------------------------------
+# ENE defined as meeting eligibility criteria but no WPV
 
 # How many unique ene patients have more than one visit?
 nrow(visits %>%
@@ -183,8 +195,9 @@ n_visits_per_patient_clinic <- visits %>%
   count() %>%
   filter(Arb_PersonId %in% gt1_clinic_ids$Arb_PersonId)
     
-# Group by person and then slice head to get the most frequent clinic and assign
-# patients to that cohort.
+
+# For ene patients who were seen at multiple clinics, cohort is assigned as the 
+# clinic with the most visits, if tied select the first observation (Group)
 ene_gt1_clinic_cohorts <- 
   n_visits_per_patient_clinic %>% 
   group_by(Arb_PersonId) %>%
@@ -193,8 +206,8 @@ ene_gt1_clinic_cohorts <-
   mutate(Cohort = str_c("Cohort ", GroupID)) %>%
   select(Arb_PersonId, Cohort)
 
-# Assign a cohort to those with out visits at multiple clinics, Just grabs the
-# first one arranged by date
+# Assign a cohort to those with out visits at multiple clinic which is the first
+# Cohort after arranging visits by date as was done for EE. 
 ene_gt1 <- visits %>%
   filter(Eligible == 1, 
          Arb_PersonId %in% ene_gt1_clinic_cohorts$Arb_PersonId) %>%
@@ -217,17 +230,24 @@ ene <-
   mutate(Cohort = str_c("Cohort ", GroupID))
 
 
-
-
 # Merge ene which initially contains only the first visit of ENE patients with
 # ene_gt1_clinic_cohorts which contains the same variables but Cohort has been
 # assigned to the clinic in which the most frequent visits take place for those
 # with visits across multiple clinics
 data <- bind_rows(ee, ene, ene_gt1)
+rm(ene_gt1, ene_gt1_clinic_cohorts, gt1_clinic_ids, n_visits_per_patient_clinic, tempdat.id)
 
-# Test table with enrolled == 0 patients only
-test_tab1 <- data %>%
-  mutate(Enrolled = ifelse(Enrolled == 1, "EE", "ENE")) %>%
+data %<>%
+  mutate(Enrolled = ifelse(Enrolled == 1, "EE", "ENE"))
+
+
+# Probably save the data here at this point to then be loaded into a .qmd doc
+save(data, file = here("data", "ee_vs_ene_processed.rda"))
+
+
+# %%%%%%%%%%%%%%%%%%%%%% TABLES %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# Table 1 demographics with enrolled == 0 patients only ------------------------
+tab1 <- data %>%
   select(Cohort, Age, Sex, Race_Ethnicity, Insurance, Enrolled) %>% 
   tbl_strata(strata = Cohort,
             .tbl_fun = 
@@ -245,77 +265,15 @@ test_tab1 <- data %>%
   )
 
 
-
-test_tab1 %>%
+# Save Table 1
+tab1 %>%
     as_gt() %>%
     gt::gtsave(
-      filename = here("ee_vs_ene_test_tab1.pdf"))
+      filename = here("tables", "ee_vs_ene_test_tab1.pdf"))
 
 # %%%%%%%%%%%%%%%%%%%%%% FENCE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-# Table: Demographics %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#tab1 <- 
-visits %>% 
-  select(Cohort, Age, Sex, Race_Ethnicity, Insurance) %>% 
-  # mutate(Sex = as_factor(Sex)) %>%
-  # mutate(Sex = fct_explicit_na(Sex, na_level = "Unknown")) %>%
-  tbl_summary(by = Cohort,
-              statistic = list(all_continuous() ~ "{mean} ({sd})"),
-              label = list(Race_Ethnicity ~ "Race/Ethnicity",
-                           Age ~ "Age (years)"),
-              missing = "no") %>%
-  # missing="ifany",
-  # missing_text="Unknown") %>%
-  add_n(statistic="{N_miss} ({p_miss}%)") %>%
-  modify_header(n = "**N missing (%)**") %>%
-  bold_labels() %>% 
-  add_overall()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Demographics table -----------------------------------------------------------
-# tab1 <- data %>%
-#   select(Cohort, Age, Sex, Race_Ethnicity, Insurance, Enrolled) %>% 
-#   mutate(Sex = na_if(Sex, "Unknown")) %>%
-#   tbl_strata(
-#     strata = Cohort,
-#     .tbl_fun = 
-#       ~ .x %>%
-#       tbl_summary(by = Enrolled,
-#                     statistic = list(all_continuous() ~ "{mean} ({sd})"),
-#                     label = list(Race_Ethnicity ~ "Race/Ethnicity",
-#                            Age ~ "Age (years)"),
-#                     #missing = "no",
-#                     sort = all_categorical() ~ "frequency") %>%
-#         #add_n(statistic="{N_miss} ({p_miss}%)") %>%
-#         #modify_header(n = "**N missing (%)**") %>%
-#         bold_labels() %>% 
-#         add_overall()
-#   )
-# 
-# tab1 %>%
-#   as_gt() %>%
-#   gt::gtsave(
-#     filename = here("tables", "ee_vs_ene - demographics_patients.pdf"))
-# 
-# as_flex_table(tab1)
-# 
 # # Patient Health Characteristics --------------------------------------
 # tab2 <- data %>% 
 #   mutate(PHQ2_Completed = ifelse(is.na(PHQ2_Completed), 0, PHQ2_Completed),
