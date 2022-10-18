@@ -138,10 +138,16 @@ visits %>% filter(Enrolled == 1) %>% pull(Arb_PersonId) %>% n_distinct() == dim(
 # Check that there are no patients in ee that are coded in intervention
 nrow(ee %>% filter(intervention == 1)) == 0
 
-# *** LEFT OFF HERE - Need to address how to modify Cohort NA and 
+# Check that only 3 Cohorts are available 
+length(table(ee$Cohort))
+
+
+
+# *** LEFT OFF HERE ***
 # Eligible but not enrolled: Meet eligibility criteria but no WPV --------------
 # *** Many cohort values are NA. Why is that?
 # *** Sort categories in table by descending %/frequency
+# *** Need to address how to modify Cohort NA and 
 
 # How to handle patients with more than one visit, which cohort to assign them
 # to if more than one?
@@ -162,33 +168,89 @@ nrow(visits %>%
   summarise(clinics = n_distinct(GroupID)) %>%
   filter(clinics > 1))
 
-test <- visits %>%
+# Get the Arb_PersonIds of those that went to more than one clinic
+gt1_clinic_ids <- visits %>%
   filter(!Arb_PersonId %in% ee$Arb_PersonId) %>%
   group_by(Arb_PersonId) %>%
   summarise(clinics = n_distinct(GroupID)) %>%
   filter(clinics > 1)
 
+# Get the number of visits for each patient at each clinic
+n_visits_per_patient_clinic <- visits %>%
+  filter(Enrolled == 0,
+         Eligible == 1) %>%
+  group_by(Arb_PersonId, GroupID) %>%
+  count() %>%
+  filter(Arb_PersonId %in% gt1_clinic_ids$Arb_PersonId)
+    
+# Group by person and then slice head to get the most frequent clinic and assign
+# patients to that cohort.
+ene_gt1_clinic_cohorts <- 
+  n_visits_per_patient_clinic %>% 
+  group_by(Arb_PersonId) %>%
+  arrange(n) %>% 
+  slice_head() %>%
+  mutate(Cohort = str_c("Cohort ", GroupID)) %>%
+  select(Arb_PersonId, Cohort)
 
+# Assign a cohort to those with out visits at multiple clinics, Just grabs the
+# first one arranged by date
+ene_gt1 <- visits %>%
+  filter(Eligible == 1, 
+         Arb_PersonId %in% ene_gt1_clinic_cohorts$Arb_PersonId) %>%
+  left_join(ene_gt1_clinic_cohorts, by = "Arb_PersonId") %>%
+  mutate(Cohort = coalesce(Cohort.y, Cohort.x)) %>%
+  select(-Cohort.y, -Cohort.x) %>%
+  group_by(Arb_PersonId) %>%
+  slice_head() %>%
+  select(Arb_PersonId:WPV_v2, Cohort, everything())
 
-
-
-# Test table with enrolled == 0 patients only
-visits %>%
-  filter(Enrolled == 0) %>%
+ene <- 
+  visits %>%
+  filter(!Arb_PersonId %in% ee$Arb_PersonId,
+         !Arb_PersonId %in% ene_gt1$Arb_PersonId,
+         Eligible == 1,
+         Enrolled == 0) %>%
   group_by(Arb_PersonId) %>%
   arrange(EncounterDate) %>%
   slice_head() %>%
-  ungroup() %>%
-  select(Cohort, Age, Sex, Race_Ethnicity, Insurance) %>% 
-  tbl_summary(by = Cohort,
-              statistic = list(all_continuous() ~ "{mean} ({sd})"),
-              label = list(Race_Ethnicity ~ "Race/Ethnicity",
-                           Age ~ "Age (years)"),
-              missing = "no") %>%
-  add_n(statistic="{N_miss} ({p_miss}%)") %>%
-  modify_header(n = "**N missing (%)**") %>%
-  bold_labels() %>% 
-  add_overall()
+  mutate(Cohort = str_c("Cohort ", GroupID))
+
+
+
+
+# Merge ene which initially contains only the first visit of ENE patients with
+# ene_gt1_clinic_cohorts which contains the same variables but Cohort has been
+# assigned to the clinic in which the most frequent visits take place for those
+# with visits across multiple clinics
+data <- bind_rows(ee, ene, ene_gt1)
+
+# Test table with enrolled == 0 patients only
+test_tab1 <- data %>%
+  mutate(Enrolled = ifelse(Enrolled == 1, "EE", "ENE")) %>%
+  select(Cohort, Age, Sex, Race_Ethnicity, Insurance, Enrolled) %>% 
+  tbl_strata(strata = Cohort,
+            .tbl_fun = 
+              ~ .x %>%
+              tbl_summary(by = Enrolled,
+                          statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                          label = list(Race_Ethnicity ~ "Race/Ethnicity",
+                                       Age ~ "Age (years)"),
+                          missing = "no",
+                          sort = list(everything() ~ "frequency")) %>%
+                          #add_n(statistic="{N_miss} ({p_miss}%)") %>%
+                          #modify_header(n = "**N missing (%)**") %>%
+                          bold_labels() #%>% 
+                          #add_overall()
+  )
+
+
+
+test_tab1 %>%
+    as_gt() %>%
+    gt::gtsave(
+      filename = here("ee_vs_ene_test_tab1.pdf"))
+
 # %%%%%%%%%%%%%%%%%%%%%% FENCE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
