@@ -3,7 +3,7 @@
 Created 10/13/2022
 
 seq_df2 was created with the 02_Rimage_to_analysis_datasets_v2.R script with the following modifications:
-- Data processed as normal up to line 705
+- Data initially processed as normal up to line 705
 - Then, instead of creating seq_df2 via
 ```{r} [
 join2 %>% 
