@@ -1,23 +1,18 @@
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# Carlos Rodriguez, PhD. Dept. of Family Medicine, CU Anschutz Medical Campus
+---
+title: "Eligible & Enrolled vs Eligible & Not Enrolled"
+format: 
+  docx:
+    toc: true
+    number-sections: true
+execute:
+    #echo: false
+    warning: false
+    
+echo: false    
+    
+---
 
-# Eligible and enrolled vs eligible and not-enrolled paper
-# Description:
-# This script is the first step in attempting to put together the data, tables
-# and figures for the PATHWEIGH EE vs ENE paper.
-
-# Requirements:
-# Depends on a data set derived from the baseline characteristics processing
-# script. The data in the baseline characteristics paper were initally only
-# processed for those with index visits (i.e. EE only). Additional processing
-# was needed to include ENE. The data are found in the data directory as 
-# seq_df2*.rda. Seq_df2 was a subset of the join2 dataframe and have been
-# renamed as visits. Seq_df2 was a subset of visits that where the encounter
-# date was equal to or greater than the index data essentially filtering for all
-# visits after the index date and has been renamed as visits_post_id.
-
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+```{r}
 # Load Packages ----------------------------------------------------------------
 pacman::p_load(here,         # For managing directory paths
                magrittr,     # For the assignment pipe operator %<>%
@@ -26,24 +21,32 @@ pacman::p_load(here,         # For managing directory paths
                openxlsx,     # For reading .xlsx files
                tictoc,       # For timing and benchmarking functions
                gtsummary,    # For creating tables
+               flextable,    # For the autofit function
                furrr)        # For parallel processing
 
 # Set parallel processing
 plan(multisession, workers = 4)
+```
 
+
+```{r}
 ## Load seq_df2 ----------------------------------------------------------------
 # Keep in workspace as a back up
 load(here("data", "ee_vs_ene_processed.rda"))
+```
 
+```{r create table to word function}
+# This function will modify the output dimensions of the flextables
+fit_flextable_wordpage <- function(ft, pgwidth = 7){
+  ft_out <- ft %>% autofit()
+  ft_out <- width(ft_out, 
+                  width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
+  return(ft_out)
+}
+```
 
-
-check_na_labs <- data %>% 
-  filter(Enrolled == "ENE") %>%
-  select(Arb_PersonId, Arb_EncounterId)
-
-save(check_na_labs, file = here("data", "check_na_labs.rda"))
-
-# %%%%%%%%%%%%%%%%%%%%%% TABLES %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# Demographics
+```{r}
 # Table 1 demographics
 tab1.a <- data %>%
   select(Age, Sex, Race_Ethnicity, Insurance, Enrolled) %>%
@@ -96,13 +99,21 @@ tab1 <- tbl_merge(tbls = list(tab1.a,
                           "**Sequence 3**"))
 
 # Save Table 1
+# tab1 %>%
+#     as_gt() %>%
+#     gt::gtsave(
+#       filename = here("tables", "ee_vs_ene_table_1.pdf"))
+
 tab1 %>%
-    as_gt() %>%
-    gt::gtsave(
-      filename = here("tables", "ee_vs_ene_table_1.pdf"))
+  as_flex_table() %>% 
+  fit_flextable_wordpage()
+```
 
+\newpage
 
-# Patient Health Characteristics -----------------------------------------------
+# Patient Health Characteristics
+```{r}
+# Patient Health Characteristics --------------------------------------
 tab2_cols <- names(data %>% select(Height, Weight_kgs, BMI, HeartRate, Respiratoryrate,
                             Systolic_blood_pressure, Diastolic_blood_pressure, Temperature,
                             TSH, Triglycerides, HDL, ALT, AST, A1C, eGFR, N_MedsWeightGain_period,
@@ -178,14 +189,20 @@ tab2 <- tbl_merge(tbls = list(tab2.a,
                                   "**Sequence 2**",
                                   "**Sequence 3**"))
 
+# tab2 %>%
+#   as_gt() %>%
+#   gt::gtsave(
+#     filename = here("tables", "ee_vs_ene_table_2.pdf"))
+
 tab2 %>%
-  as_gt() %>%
-  gt::gtsave(
-    filename = here("tables", "ee_vs_ene_table_2.pdf"))
+  as_flex_table() %>% 
+  fit_flextable_wordpage()
+```
 
-#as_flex_table(tab2)
+\newpage
 
-
+# Comorbidities
+```{r}
 # Comorbidities --------------------------------------
 # Load the top comorbidities .csv file
 top_comorbidities <- read.csv(here("../baseline_characteristics/working_files/top_comorbidities_220121.csv"))
@@ -224,8 +241,15 @@ tab3 <- tbl_merge(tbls = list(tab3.a,
                                   "**Sequence 2**",
                                   "**Sequence 3**"))
 
+tab3 %>%
+  as_flex_table() %>% 
+  fit_flextable_wordpage()
+```
 
+\newpage
 
+# Referrals, Procedures, and Medications
+```{r}
 # Referrals --------------------------------------
 
 tab4.1.a <- data %>%
@@ -334,91 +358,10 @@ tab4.2.a <-  data %>%
 
 
 
-tbl_stack(list(tab4.1, tab4.2))
+tab4 <- tbl_stack(list(tab4.1, tab4.2))
 
+tab4 %>%
+  as_flex_table() %>% 
+  fit_flextable_wordpage()
+```
 
-
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-# # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FENCE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# # Determine why dat.idIndex is difference than EE
-# 
-# # Create dat.id
-# dat.id <- read.csv("S:/FM/PATHWEIGH/Quantitative/Projects/baseline_characteristics/data/220121_2020-03-17_to_2021-03-16_wpv1_idIndex.csv", 
-#                    header=TRUE,
-#                    colClasses=c("Arb_PersonId"="character","Arb_EncounterId"="character"))
-# # Processing variables in dat.id for the medications table
-# dat.id <- dat.id %>% drop_na(ProviderNpi)
-# dat.id$weight.gain <- ifelse(dat.id$N_MedsWeightGain_period>0, 1, 0)
-# dat.id$weight.loss <- ifelse(dat.id$N_MedsWeightLoss_period>0, 1, 0)
-# 
-# 
-# # Create EE
-# ee <- visits %>%
-#   drop_na(ProviderNpi) %>%
-#   filter(EncounterDate == IndexDate)
-# 
-# write.csv(ee, file = "ee_test.csv")
-# ee <- read.csv("ee_test.csv",
-#                header = TRUE,
-#                colClasses = c("Arb_PersonId"="character","Arb_EncounterId"="character"))
-# 
-# 
-# # dat.id has 92 variables whereas dat.id only has 82
-# names_dat.id <- names(dat.id)
-# names_ee <- names(ee)
-# 
-# # Which names are not in names_ee
-# missing_vars <- names_dat.id[!names_dat.id %in% names_ee]
-# 
-# # *** The extra comorbidities columns are missing which is on the to-do list
-# # The comorbidities may be off because they were created in the subset of  EE 
-# # patients instead of the aggregated EE vs ENE. May need to just get the names
-# # and use them to filter out the comorbidities instead of using the 3% algorithm
-# dat.id %<>%
-#   select(all_of(names_ee[names_ee %in% names_dat.id]))
-# 
-# ee %<>%
-#   select(all_of(names_ee[names_ee %in% names_dat.id]))
-# # %>%
-# #   mutate(Arb_PersonId = as.character(Arb_PersonId),
-# #          Arb_EncounterId = as.character(Arb_EncounterId),
-# #          EncounterDate = as.character(EncounterDate),
-# #          BirthDate = as.character(BirthDate),
-# #          IndexDate = as.character(IndexDate),
-# #          GAD7 = as.integer(GAD7),
-# #          PHQ2 = as.integer(PHQ2),
-# #          PHQ2_Completed = as.integer(PHQ2_Completed),
-# #          PHQ8 = as.integer(PHQ8),
-# #          PHQ9 = as.integer(PHQ9),
-# #          PHQ9_Completed = as.integer(PHQ9_Completed),
-# #          ReferralDate = as.character(ReferralDate)) %>%
-# #   mutate_if(is.factor, as.character)
-# # 
-# # 
-# # unique(bind_rows(ee, dat.id))
-# 
-# # Returns whether or not the first rows are equal to one another
-# non_matching_obs <- anti_join(dat.id, ee, by = names(ee))
-# 
-# test <- bind_rows(ee[ee$Arb_PersonId == non_matching_obs$Arb_PersonId[1],  ],
-#                   dat.id[dat.id$Arb_PersonId == non_matching_obs$Arb_PersonId[1],  ])
-# 
-# 
-# # Remove the ethnicity column because it is not used and causing mismatches
-# table(dat.id$Ethnicity)
-# table(ee$Ethnicity)
-# 
-# # Remove Ethnicity, count.nas
-# dat.id %<>% select(-count.nas)
-# ee %<>% select(-count.nas)
-# 
-# non_matching_obs <- anti_join(dat.id, ee, by = names(ee))
-# 
-# # Seems like race_ethnicity is a culprit there are some that don't get the same
-# # Values
-# table(dat.id$Race_Ethnicity) #
-# table(ee$Race_Ethnicity)
-# 
-# # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FENCE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
