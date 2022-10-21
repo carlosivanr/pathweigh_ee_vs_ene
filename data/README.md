@@ -39,3 +39,7 @@ ee_vs_ene_processed.rda was created via the ee_vs_ene.R script. This data set re
 
 
 
+# check_na_labs
+
+Created 10/21/2022
+check_na_labs was created to troubleshoot why some participants in the ENE group did not have any labs, O2CPAPBIPAP, and PHQ measures. Modified the make_data_for_ee_vs_ene script to tag on an index date to those that 
