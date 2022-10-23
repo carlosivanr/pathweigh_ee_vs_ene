@@ -3,24 +3,27 @@
 # 10/20/2022
 # Make EE vs ENE data set
 
-# Description:
+# DESCRIPTION:
 # This script is used to generate data for the eligible and enrolled vs eligible
-# not enrolled paper.
+# not enrolled paper (EE vs ENE).
 
-# The EE vs ENE paper is based off of the data used in the base line 
+# The EE vs ENE paper is based off of the data used in the baseline 
 # characteristics paper and relies on code drafted in 
 # 02_Rimage_to_analysis_datasets.R script. 
 
-# The 02_Rimage_to_analysis_datasets.R script only processed data for those that
-# were eligible and enrolled. As a result, certain comorbidities, labs, and 
-# other variables were never created for patient encounters that were eligible
-# but not enrolled. This script processes all available data whether EE or ENE.
+# NOTES: 
+# The 02_Rimage_to_analysis_datasets.R script only fully processed data for 
+# encounters/patients that were eligible and enrolled. 
 
-# In addition, the comorbidities in the baseline paper were based on percentages
-# from only the EE patients. Thus this script also addresses using those 
-# comorbidities to determine the percentage of each comorbidity in the ENE 
-# patients. Otherwise, the algorithms would count the comorbidities for all 
-# EE and ENE patients and would not match those in the baseline characteristics
+# As a result, certain comorbidities, labs, and this script is modified to apply
+# the same procedures to the eligible and not enrolled encounters/patients. 
+
+# In addition, the comorbidities in the baseline paper were based on the total
+# percentages from only the EE patients. Thus this script also addresses using 
+# the same comorbidities in the baseline characteristics paper to determine the 
+# percentage of each comorbidity in the ENE patients. Otherwise, the algorithms 
+# would count the comorbidities for all EE and ENE patients and the most 
+# frequent comorbidities would not match those in the baseline characteristics
 # paper.
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -99,16 +102,14 @@ join2$intervention[join2$GroupID==3] <-
   ifelse(join2$EncounterDate[join2$GroupID==3]<time3change, 0, 1)               
 
 # Age --------------------------------------------------------------------------
-# Calculate age of patient at visit using EncounterDate and BirthDate
-#cat("Processing electronic health record variables ...", "\n")
-# Censor individuals older than 90, but keep them in the analysis (10/27/21) 
+# Calculate age of patient at visit using EncounterDate and BirthDate and censor
+# individuals older than 90, but keep them in the analysis (10/27/21) 
 join2 <- join2 %>% 
   mutate(Age = as.numeric((EncounterDate - BirthDate)/365)) %>%
   mutate_at("Age", 
             ~ifelse(. > 90, 90, .))
 
 ##Some patients have heights or weights of -999, make NA
-# *** could use the na_if(., -999) function as well
 join2 <- join2 %>%
   mutate_at(c("Height", 
               "Weight"),
@@ -207,9 +208,8 @@ join2 <- join2 %>%
 
 # Set any BMIs > 65 to NA and create a BMI_use variable that is a blend of the 
 # two (use computed variable if COMPASS is not available)
-#Create new BMI variable, using calculated BMI only if COMPASS BMI is not available
-
-# Convert BMIs > 65 to NAs
+# Create new BMI variable, using calculated BMI only if COMPASS BMI is not 
+# available.
 join2 <- join2 %>%
   mutate_at(c("BMI", "BMI_comp"),
             ~ifelse(. > 65, NA, .))
@@ -221,28 +221,15 @@ join2 <- join2 %>%
 
 
 # Inclusion Criteria -----------------------------------------------------------
-# Eligible patients: Adults (age >=18) with BMI>=25 at index visit
-# **Decision** Previous Exclusion Criteria: Patients unable to participate in 
-# weight loss treatment due to factors such as cognitive deficits, non-home 
-# residence, or limited life expectancy is what was written in the protocol 
-# paper. *We decided on 10/27/21 that these exclusion criteria will not be used 
-# as we do not have a way to implement them using the information given in this 
-# data pull.* 
-# **Filtering** Below are the number of eligible patients (Age>=18, BMI>=25) 
-# with height <54in (4.5'), height >90in (7.5'), or weight >9600oz (600 lbs). 
-# These encounters were removed from "eligibility" according to these data 
-# quality checks.
+# Eligible patients: Adults (age >=18) with BMI>=25 at index visit. 
 
-##Create variable to indicate if the encounter is eligible (Age >=18, BMI>=25)
+# Create variable to indicate if the encounter is eligible (Age >=18, BMI>=25)
 join2 <- join2 %>%
   mutate(Eligible = ifelse(Age >= 18 & BMI_use >=25, 1, 0),
          Eligible = ifelse(is.na(Eligible), 0, Eligible))
 
-##Summaries of Excluded patients - as these thresholds represent unreasonable 
-# values per Leigh's criteria for weight and height
-##Change eligible flag to 0 for patients with height <54 (in) and weight > 9600 
-# (oz) as the "Highest ‘credible’  BMI probably 65. Any adult height below 4.5' 
-# / 54 inches or weight >600 lbs or taller than 7.5'/90 inches
+# Patients with height <54in (4.5'), height >90in (7.5'), or weight >9600oz 
+#(600 lbs) are excluded.
 join2$Eligible[which(join2$Weight>9600 | join2$Height<54 | join2$Height>90)] <- 0
 
 # Repeat Encounters ----------------------------------------------
@@ -251,15 +238,11 @@ join2$Eligible[which(join2$Weight>9600 | join2$Height<54 | join2$Height>90)] <- 
 # more info by counting the NAs. There are also discrepancies in smoking status 
 # (keep the more extreme one - coded above as factor) i.e. Smoking_Status ***
 
-
 # One problem here is that some patients have multiple visits on the same day
 # and are at different locations, see Arb_PersonId == 4597227314 for an example.
 # join2 %>% filter(Arb_PersonId == 4597227314)
 # paste0("Number of Encounters including duplicates: ", nrow(join2))
 # 
-# # The number of duplicate encounters
-# paste0("Number of Duplicate Encounters: ", 
-#        nrow(join2) - n_distinct(join2$Arb_EncounterId))
 
 # Count the number of NAs in each row, arrange them, then take the head to keep 
 # for duplicated encounters
@@ -271,9 +254,6 @@ join2 <- join2 %>%
   slice_head() %>%
   ungroup()
 
-# The number of unique encounters
-# paste0("Number of Encounters without duplicates: ", 
-#        n_distinct(join2$Arb_EncounterId))
 
 # Defining Weight Prioritized Visit (WPV) ---------------------------------
 ## Relevant Chief Complaints

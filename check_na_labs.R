@@ -28,3 +28,12 @@ labs %>%
 
 # *** Means that there is something else going on. will need to look at the meds
 # processing and the procedure processing script in 01.make data for ee vs ene
+
+# THis person A1C in the labs tables, but not in the data data frame
+test <- data %>% filter(Arb_PersonId == 5768477312)     
+
+
+test <- data %>% 
+  filter(Arb_PersonId %in% (O2CPAPBIPAP_dat %>% 
+  filter(Arb_PersonId %in% check_na_labs$Arb_PersonId) %>% 
+  pull(Arb_PersonId)))
