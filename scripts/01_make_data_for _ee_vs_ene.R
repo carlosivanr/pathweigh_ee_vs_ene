@@ -710,6 +710,9 @@ seq_df2$BariatricSurgery[is.na(seq_df2$BariatricSurgery)] <- 0
 # actually taking a medication on their list. It is not uncommon for someone 
 # to prescribe a drug and the patient never takes it.
 # Time frame: During baseline period, modify the medication and generic names
+# One of the goals of this section is to merge meds ref with meds list.
+# These are merged to preserve uniqueMedName and a generic name and merge with
+# the binary variables of whether or not a medication is AOM, gain, or loss.
 
 meds_sub <- meds %>% 
   filter(ActiveMed == "Y", 
@@ -727,7 +730,7 @@ meds_ref <- meds_ref %>%
          weight.loss = ifelse(is.na(weight.loss), 0, 1 ),
          AOM = ifelse(is.na(AOM), 0, 1 ))
 
-weightgain_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.gain==1])      # could use meds_ref %>% filter(weight.gain == 1) %>% select(uniqueMedName) %>% distinct(), but not sure if vector or df is needed
+weightgain_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.gain==1])      
 weightloss_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.loss==1])
 AOM_meds <- unique(meds_ref$uniqueMedName[meds_ref$AOM==1])
 
@@ -741,7 +744,7 @@ meds_list <- read.xlsx(
   here("../baseline_characteristics/working_files/medications/medications.xlsx"),
   sheet="Medications")
 
-## Process meds list ####
+## Process meds list    ####
 meds_list <-  meds_list %>%
   mutate_at(c("Name", "GenericName"), tolower) %>% 
   select(uniqueMedName, GenericName) %>%
@@ -772,7 +775,8 @@ meds_full <- meds_full %>%
   distinct() %>%
   arrange(Arb_PersonId)
 
-# Create an anti obesity medication data frame 
+# Create an anti obesity medication data frame
+# n.b. at this point there will be duplicate Arb_PersonIds in the dataframe
 meds_AOM <- meds_AOM %>% distinct(Arb_PersonId, IndexDate, uniqueMedName)
 
 #Count number of meds during the baseline period
@@ -794,7 +798,7 @@ meds_AOM <- meds_AOM %>%
 
 meds_counts_gain <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%weightgain_meds)
 meds_counts_loss <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%weightloss_meds)
-meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds) #The line of code delivered an error changed to meds_counts_bymeds
+meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds)
 meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds)
 
 
@@ -870,11 +874,20 @@ all_unique_ee_ids <-
 ee <- visits %>%
   filter(EncounterDate == IndexDate)
 
+
+# *** problem with meds count may be here, since seq_df2 has all the index dates
+# *** if not, then it may be best to create the index date as normal, set those
+# into a separate data frame named EE. Then exclude those from the larger data
+# set, then find those who are ENE. Then merge the two data sets to count the
+# meds correctly, problemt may be some EE getting double counted
+
+
 # What are the IDs that are in visits, but not all_unique_ids
 ids_to_exclude <- all_unique_ee_ids %>%
   filter(!Arb_PersonId %in% ee$Arb_PersonId)
 
-# Exclude the 11 patients
+# Exclude the 11 patients that were excluded from baseline code because NPI NA
+# was dropped after instead of before the assignment of an indexDate
 visits %<>%
   filter(!Arb_PersonId %in% ids_to_exclude$Arb_PersonId)
 

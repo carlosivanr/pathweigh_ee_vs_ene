@@ -250,8 +250,10 @@ tab3 %>%
 
 # Referrals, Procedures, and Medications
 ```{r}
-# Referrals --------------------------------------
+# Apply table generating function to all cohorts
+cohorts <- c("Cohort 1", "Cohort 2", "Cohort 3")
 
+# Referrals --------------------------------------
 tab4.1.a <- data %>%
   select(Enrolled,Ref_BariatricSurgery:Ref_WellnessClinic, BariatricSurgery) %>%
   tbl_summary(by = Enrolled,
@@ -303,8 +305,39 @@ tab4.1 <- tbl_merge(tbls = list(tab4.1.a,
 
 # Version 2 of the meds table
 # dat.AOM is supposed to be made from meds_AOM
+# meds <- meds_AOM %>%
+#   #select(-IndexDate, -Cohort) %>%
+#   mutate(count = 1) %>%
+#   pivot_wider(names_from = uniqueMedName, values_from = count) %>%
+#   select(-IndexDate, -Cohort) %>%
+#   distinct() %>%
+#   group_by(Arb_PersonId) %>%
+#   summarise_each(funs(sum(., na.rm = TRUE)))
+
+# #################### FENCE ############################
+ee_meds <- meds_AOM %>%
+  filter(Arb_PersonId %in% (data %>% filter(Enrolled == "EE") %>% pull(Arb_PersonId)))
+
+dat.AOM <- read.csv(here("../baseline_characteristics/data/220121_2020-03-17_to_2021-03-16_wpv1_AOM.csv"), header=TRUE,
+                     colClasses=c("Arb_PersonId"="character"))
+
+# is it some meds are double counted, or are the number of patients different?
+#sum(dat.AOM$Arb_PersonId %in% ee_meds$Arb_PersonId)
+
+# There are 17 Arb_PersonIds in ee_meds that are not in the dat.aom from bl_char
+#sum(!ee_meds$Arb_PersonId %in% dat.AOM$Arb_PersonId)
+
+missing_ids <- ee_meds %>% 
+  filter(!Arb_PersonId %in% dat.AOM$Arb_PersonId)
+
+
+meds_AOM %<>%
+  filter(!Arb_PersonId %in% missing_ids$Arb_PersonId)
+
+# #################### FENCE ############################
+
 meds <- meds_AOM %>%
-  # select(-IndexDate, -Cohort) %>%
+  #select(-IndexDate, -Cohort) %>%
   mutate(count = 1) %>%
   pivot_wider(names_from = uniqueMedName, values_from = count) %>%
   select(-IndexDate, -Cohort) %>%
@@ -314,12 +347,15 @@ meds <- meds_AOM %>%
 
 # Merge data and meds together
 data <- left_join(data, meds, by = "Arb_PersonId")
+#nrow(left_join(data, meds, by = "Arb_PersonId"))
 
 #Make table 4.2.a
 tab4.2.a <-  data %>%
   select(Enrolled, all_of(names(meds %>% select(-Arb_PersonId)))) %>%
   mutate_at(vars(all_of(names(meds %>% select(-Arb_PersonId)))),
             ~replace(., is.na(.),0)) %>%
+  mutate_at(vars(all_of(names(meds %>% select(-Arb_PersonId)))),
+            ~replace(., . == 2, 1)) %>%
   tbl_summary(by = Enrolled) %>%
   add_p(test = list(all_continuous() ~ "t.test")) %>%
   modify_spanning_header(all_stat_cols() ~ "**Overall**") %>%
@@ -335,6 +371,8 @@ tab4.2.a <-  data %>%
       select(Enrolled, all_of(names(meds %>% select(-Arb_PersonId)))) %>%
       mutate_at(vars(all_of(names(meds %>% select(-Arb_PersonId)))),
                 ~replace(., is.na(.),0)) %>%
+      mutate_at(vars(all_of(names(meds %>% select(-Arb_PersonId)))),
+            ~replace(., . == 2, 1)) %>%
       tbl_summary(by = Enrolled) %>%
       bold_labels()
     
@@ -355,7 +393,6 @@ tab4.2.a <-  data %>%
                                       "**Sequence 1**",
                                       "**Sequence 2**",
                                       "**Sequence 3**"))
-
 
 
 tab4 <- tbl_stack(list(tab4.1, tab4.2))
