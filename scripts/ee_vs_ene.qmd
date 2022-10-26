@@ -14,7 +14,7 @@ echo: false
 
 ```{r}
 # Load Packages ----------------------------------------------------------------
-pacman::p_load(here,         # For managing directory paths
+invisible(pacman::p_load(here,         # For managing directory paths
                magrittr,     # For the assignment pipe operator %<>%
                tidyverse,    # For data manipulation tools
                data.table,   # For reading .csv files
@@ -23,6 +23,7 @@ pacman::p_load(here,         # For managing directory paths
                gtsummary,    # For creating tables
                flextable,    # For the autofit function
                furrr)        # For parallel processing
+)
 
 # Set parallel processing
 plan(multisession, workers = 4)
@@ -122,31 +123,34 @@ tab2_cols <- names(data %>% select(Height, Weight_kgs, BMI, HeartRate, Respirato
 
 tab2.a <- data %>%
   select(all_of(tab2_cols)) %>%
-    tbl_summary(by = Enrolled,
-                label = list(Height ~ "Height (cm)",
-                             Weight_kgs ~ "Weight (kg)",
-                             BMI ~ "BMI (kg/m^2)",
-                             HeartRate ~ "Heart Rate (bpm)",
-                             Respiratoryrate ~ "Respiratory Rate (rpm)",
-                             Systolic_blood_pressure ~ "Systolic BP (mmHg)",
-                             Diastolic_blood_pressure ~ "Diastolic BP (mmHg)",
-                             N_MedsWeightGain_period ~ "Using meds that cause weight gain",
-                             N_MedsWeightLoss_period ~ "Using meds that cause weight loss",
-                             O2CPAPBIPAP ~ "O2/CPAP/BIPAP Users",
-                             PHQ2_Completed ~ "PHQ2 Completed",
-                             SmokingStatus ~ "Smoking Status",
-                             Temperature ~ "Temperature (F)"),
-                #type = list(all_continuous() ~ "continuous2"),
-                missing = "no",
-                statistic = list(all_continuous() ~ c("{mean} ({sd})")),
-                sort = list(everything() ~ "frequency")) %>%
+  tbl_summary(by = Enrolled,
+              label = list(Height ~ "Height (cm)",
+                           Weight_kgs ~ "Weight (kg)",
+                           BMI ~ "BMI (kg/m^2)",
+                           HeartRate ~ "Heart Rate (bpm)",
+                           Respiratoryrate ~ "Respiratory Rate (rpm)",
+                           Systolic_blood_pressure ~ "Systolic BP (mmHg)",
+                           Diastolic_blood_pressure ~ "Diastolic BP (mmHg)",
+                           N_MedsWeightGain_period ~ "Using meds that cause weight gain",
+                           N_MedsWeightLoss_period ~ "Using meds that cause weight loss",
+                           O2CPAPBIPAP ~ "O2/CPAP/BIPAP Users",
+                           PHQ2_Completed ~ "PHQ2 Completed",
+                           SmokingStatus ~ "Smoking Status",
+                           Temperature ~ "Temperature (F)"),
+              #type = list(all_continuous() ~ "continuous2"),
+              missing = "no",
+              statistic = list(all_continuous() ~ c("{mean} ({sd})")),
+              sort = list(everything() ~ "frequency")) %>%
   #add_n(statistic="{N_miss} ({p_miss}%)") %>%
   #modify_header(n = "**N missing (%)**") %>%
   bold_labels()  %>%
   add_p(test = list(all_continuous() ~ "t.test")) %>%
   modify_spanning_header(all_stat_cols() ~ "**Overall**")
+```
 
-# #Table 2 generating function
+
+```{r}
+# Table 2 generating function
 make_sub_tab2 <- function(cohort){
   table <- data[data$Cohort == cohort,] %>%
     select(all_of(tab2_cols)) %>%
@@ -303,58 +307,16 @@ tab4.1 <- tbl_merge(tbls = list(tab4.1.a,
                                   "**Sequence 2**",
                                   "**Sequence 3**"))
 
-# Version 2 of the meds table
-# dat.AOM is supposed to be made from meds_AOM
-# meds <- meds_AOM %>%
-#   #select(-IndexDate, -Cohort) %>%
-#   mutate(count = 1) %>%
-#   pivot_wider(names_from = uniqueMedName, values_from = count) %>%
-#   select(-IndexDate, -Cohort) %>%
-#   distinct() %>%
-#   group_by(Arb_PersonId) %>%
-#   summarise_each(funs(sum(., na.rm = TRUE)))
 
-# #################### FENCE ############################
-ee_meds <- meds_AOM %>%
-  filter(Arb_PersonId %in% (data %>% filter(Enrolled == "EE") %>% pull(Arb_PersonId)))
+```
 
-dat.AOM <- read.csv(here("../baseline_characteristics/data/220121_2020-03-17_to_2021-03-16_wpv1_AOM.csv"), header=TRUE,
-                     colClasses=c("Arb_PersonId"="character"))
-
-# is it some meds are double counted, or are the number of patients different?
-#sum(dat.AOM$Arb_PersonId %in% ee_meds$Arb_PersonId)
-
-# There are 17 Arb_PersonIds in ee_meds that are not in the dat.aom from bl_char
-#sum(!ee_meds$Arb_PersonId %in% dat.AOM$Arb_PersonId)
-
-missing_ids <- ee_meds %>% 
-  filter(!Arb_PersonId %in% dat.AOM$Arb_PersonId)
-
-
-meds_AOM %<>%
-  filter(!Arb_PersonId %in% missing_ids$Arb_PersonId)
-
-# #################### FENCE ############################
-
-meds <- meds_AOM %>%
-  #select(-IndexDate, -Cohort) %>%
-  mutate(count = 1) %>%
-  pivot_wider(names_from = uniqueMedName, values_from = count) %>%
-  select(-IndexDate, -Cohort) %>%
-  distinct() %>%
-  group_by(Arb_PersonId) %>%
-  summarise_each(funs(sum(., na.rm = TRUE)))
-
-# Merge data and meds together
-data <- left_join(data, meds, by = "Arb_PersonId")
-#nrow(left_join(data, meds, by = "Arb_PersonId"))
-
+```{r, echo = FALSE}
 #Make table 4.2.a
 tab4.2.a <-  data %>%
-  select(Enrolled, all_of(names(meds %>% select(-Arb_PersonId)))) %>%
-  mutate_at(vars(all_of(names(meds %>% select(-Arb_PersonId)))),
+  select(Enrolled, all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))) %>%
+  mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
             ~replace(., is.na(.),0)) %>%
-  mutate_at(vars(all_of(names(meds %>% select(-Arb_PersonId)))),
+  mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
             ~replace(., . == 2, 1)) %>%
   tbl_summary(by = Enrolled) %>%
   add_p(test = list(all_continuous() ~ "t.test")) %>%
@@ -362,39 +324,37 @@ tab4.2.a <-  data %>%
   bold_labels()
 
 
-
-
-
-  # Table 4.2 generating function
-  make_sub_tab4.2 <- function(cohort){
-    table <- data[data$Cohort == cohort,] %>%
-      select(Enrolled, all_of(names(meds %>% select(-Arb_PersonId)))) %>%
-      mutate_at(vars(all_of(names(meds %>% select(-Arb_PersonId)))),
-                ~replace(., is.na(.),0)) %>%
-      mutate_at(vars(all_of(names(meds %>% select(-Arb_PersonId)))),
-            ~replace(., . == 2, 1)) %>%
-      tbl_summary(by = Enrolled) %>%
-      bold_labels()
-    
-    return(table)
-    
-  }
-
-
-  # Apply table generating function to all cohorts
-  tab4.2_sub_tables <- future_map(cohorts, make_sub_tab4.2)
+# Table 4.2 generating function
+make_sub_tab4.2 <- function(cohort){
+  table <- data[data$Cohort == cohort,] %>%
+    select(Enrolled, all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))) %>%
+    mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
+              ~replace(., is.na(.),0)) %>%
+    mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
+          ~replace(., . == 2, 1)) %>%
+    tbl_summary(by = Enrolled) %>%
+    bold_labels()
   
-  # Merge all Table 1 sub tables
-  tab4.2 <- tbl_merge(tbls = list(tab4.2.a,
-                                  tab4.2_sub_tables[[1]],
-                                  tab4.2_sub_tables[[2]],
-                                  tab4.2_sub_tables[[3]]),
-                      tab_spanner = c("**Overall**",
-                                      "**Sequence 1**",
-                                      "**Sequence 2**",
-                                      "**Sequence 3**"))
+  return(table)
+  
+}
+
+# Apply table generating function to all cohorts
+tab4.2_sub_tables <- future_map(cohorts, make_sub_tab4.2)
+
+# Merge all Table 1 sub tables
+tab4.2 <- tbl_merge(tbls = list(tab4.2.a,
+                                tab4.2_sub_tables[[1]],
+                                tab4.2_sub_tables[[2]],
+                                tab4.2_sub_tables[[3]]),
+                    tab_spanner = c("**Overall**",
+                                    "**Sequence 1**",
+                                    "**Sequence 2**",
+                                    "**Sequence 3**"))
+```
 
 
+```{r}
 tab4 <- tbl_stack(list(tab4.1, tab4.2))
 
 tab4 %>%

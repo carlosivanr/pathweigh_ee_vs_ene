@@ -12,11 +12,13 @@
 # 02_Rimage_to_analysis_datasets.R script. 
 
 # NOTES: 
-# The 02_Rimage_to_analysis_datasets.R script only fully processed data for 
-# encounters/patients that were eligible and enrolled. 
+# The 02_Rimage_to_analysis_datasets.R script was originally designed to only 
+# fully processed data for encounters/patients that were eligible and enrolled. 
 
-# As a result, certain comorbidities, labs, and this script is modified to apply
-# the same procedures to the eligible and not enrolled encounters/patients. 
+# As a result, comorbidities, labs, and medications sections in this script 
+# are modified to apply the same procedures to the eligible and not enrolled 
+# encounters/patients. Applying the code with out modification to the full data 
+# results in the introduction of artefactual values.
 
 # In addition, the comorbidities in the baseline paper were based on the total
 # percentages from only the EE patients. Thus this script also addresses using 
@@ -32,16 +34,17 @@
 pacman::p_load(tidyverse,
                 data.table,
                 openxlsx,
-                here)
+                here,
+                tictoc)
 
+tic()
 # Load the data  ---------------------------------------------------------------
-# These are the individual epic compass table in Rdata format that need 
-# processing
+# These are the individual epic compass tablea in Rdata format that need 
+# processing and were loaded 
 load(here("../baseline_characteristics/data/220121.RData"))
 
 
 # # Specify parameters -----------------------------------------------------------
-# RData <- "220121.RData"
 Date.min <- "2020-03-17"
 Date.max <- "2021-03-16"
 
@@ -86,6 +89,7 @@ join2 <- left_join(encounter_sub,
 time1change <- "2021-03-17"
 time2change <- "2022-03-17"
 time3change <- "2023-03-17"
+
 
 # Intervention  ----------------------------------------------------------------
 # Intervention is based on date, not whether or not they had a WPV in the 
@@ -233,17 +237,6 @@ join2 <- join2 %>%
 join2$Eligible[which(join2$Weight>9600 | join2$Height<54 | join2$Height>90)] <- 0
 
 # Repeat Encounters ----------------------------------------------
-# There are some encounters that are repeated/duplicated. However, some of these
-# repeat rows have less information than the other. Keep the row that has 
-# more info by counting the NAs. There are also discrepancies in smoking status 
-# (keep the more extreme one - coded above as factor) i.e. Smoking_Status ***
-
-# One problem here is that some patients have multiple visits on the same day
-# and are at different locations, see Arb_PersonId == 4597227314 for an example.
-# join2 %>% filter(Arb_PersonId == 4597227314)
-# paste0("Number of Encounters including duplicates: ", nrow(join2))
-# 
-
 # Count the number of NAs in each row, arrange them, then take the head to keep 
 # for duplicated encounters
 join2 <- join2 %>%
@@ -257,18 +250,6 @@ join2 <- join2 %>%
 
 # Defining Weight Prioritized Visit (WPV) ---------------------------------
 ## Relevant Chief Complaints
-# An encounter is defined as a WPV if there was a relevant chief complaint or 
-# ICD code. Relevant chief complaints needed to include the words "weight", 
-# "obesity," or "obese". Chief complaints containing the phrase "weight loss" 
-# were not labeled as WPVs, with the exception of "Weight Loss Consult" or when 
-# "Weight loss" appeared in tandem with "Weight Management."
-
-## Chief complaints of weight or overweight or obesity for visit, this is only 
-# for eligible patients. These were the criteria in Jess's code for Prelude
-# chief_complaint_names=c('OBESITY','UCH AMB WEIGHT CHECK','WEIGHT CHANGE',
-# 'WEIGHT GAIN','WEIGHT LOSS', 'WEIGHT LOSS CONSULT','WEIGHT MANAGEMENT',
-# 'WEIGHT PROBLEM')
-
 all_chief_complaints <- names(
   table(join2$EncounterChiefComplaints[which(join2$Eligible==1)]))              
 
@@ -304,14 +285,13 @@ relevant_chief_complaints <- c(weight_complaints_use,
                                obese_complaints,
                                overweight_complaints)
 
-
 ##Create a flag if patient had a WPV from chief complaint in join2
 join2$WPV_CC <- 0
 join2$WPV_CC[which(
   join2$EncounterChiefComplaints %in% relevant_chief_complaints)] <- 1
 
 
-# ICD Codes ---------------------------------------------------------------
+# ICD Codes --------------------------------------------------------------------
 # Relevant ICD codes were the E66 series (below) and Z68.25-Z68.45.
 ###Are only interested in codes for overweight, obesity, etc
 #E66.01 E66.09  E66.1  E66.2  E66.3  E66.8  E66.9 Z68.25-Z68.45
@@ -334,14 +314,14 @@ join2$WPV_ICD <- 0
 join2$WPV_ICD[which(join2$Arb_EncounterId %in% icd_encounters)] <- 1              
 
 
-# Flowsheets --------------------------------------------------------------
+# Flowsheets -------------------------------------------------------------------
 # Flowsheets - for Obesity Brief HPI and PATHWEIGH flowsheets
-# Below are the number of instances the PATHWEIGH flowsheet was used since roll-out.
-# Neither flowsheet was used during the baseline period.
+# Below are the number of instances the PATHWEIGH flowsheet was used since 
+# roll-out. Neither flowsheet was used during the baseline period.
 # Use of these flowsheets was defined using appropriate flowsheet row Epic IDs.
 
-##Need to create flag for encounters that had flowsheets of interest
-##pull out flowsheet row ids for each type
+# Create flag for encounters that had flowsheets of interest pull out flowsheet 
+# row ids for each type
 OBHPI_ids <- flowsheet_ids$Flowsheet_RowID[
   which(flowsheet_ids$obesity_brief_HPI=="X")]                                  
 
@@ -361,18 +341,16 @@ PW_encounter_ids <- flowsheets$Arb_EncounterId[
 
 join2$WPV_PW_flow[which(join2$Arb_EncounterId %in% PW_encounter_ids)] <- 1      
 
-#The obesity brief HPI is a subset of the pathweigh flowsheet,
-#so go back and make OBHPI = 0 anytime PW is used
-#b/c anytime PW is used it flags the same row ids as the OBHPI
-
+#The obesity brief HPI is a subset of the pathweigh flowsheet, and needs to 
+# modified anytime PW is used, to prevent double counting
 join2$WPV_OBHPI[which(join2$WPV_PW_flow==1)] <- 0                               
 
 
 # Visit Type --------------------------------------------------------------
-# WPVs can be defined using Visit Type IDs, where in-person VisitTypeID = 413519 and
-# virtual VisitTypeID = 415110. Below are the number of instances using each visit type since roll-out.
+# WPVs can be defined using Visit Type IDs, where in-person VisitTypeID = 413519 
+# and virtual VisitTypeID = 415110. 
 
-##Create in person or telehealth (virtual) indicator variables
+#Create in person or telehealth (virtual) indicator variables
 join2$WPV_IP <- 0
 join2$WPV_TH <- 0
 
@@ -380,23 +358,20 @@ join2$WPV_IP[which(join2$VisitTypeId==413519)] <- 1
 join2$WPV_TH[which(join2$VisitTypeId==415110)] <- 1                             
 
 
-# Use of PATHWEIGH Smart Set ----------------------------------------------
+# Use of PATHWEIGH Smart Set ---------------------------------------------------
 # WPVs can be defined through use of the PATHWEIGH Smart Set.
-# Below are the number of instances where the PATHWEIGH Smart Set had been used.
 join2$WPV_smart <- 0
 
 join2$WPV_smart[which(join2$Arb_EncounterId %in% smart$Arb_EncounterId)] <- 1   
 
-##Create final column that says if they had a WPV (any of the above happened)
-#If this column is >0, they had a WPV
+# Create final column that says if they had a WPV (any of the above happened)
 join2$WPV <- apply(join2[,grepl("WPV_",names(join2))],1,sum)                    
 
-# Set any row where WPV > 0 to 1 because some encounters meet one or more
-# criteria in the same visit/encounter
+# Set any row where WPV > 0 to 1 as a binary rather than count variable for WPVs
 join2$WPV_v2 <- 0
 join2$WPV_v2[join2$WPV > 0] <- 1
 
-# Consort Diagram ---------------------------------------------------------
+# Consort Diagram --------------------------------------------------------------
 # Patients were assigned to the sequence of the clinic where they had an
 # eligible visit (satisfying Age, BMI, and WPV indicator)
 
@@ -407,7 +382,6 @@ baseline_index <- which(
 
 # id.inrange is made by selecting cases that belong to baseline_index
 id.inrange <- join2$Arb_EncounterId[baseline_index]
-
 
 # Assign an Index date
 tempdat.id <- join2 %>%
@@ -429,17 +403,11 @@ join2 <- left_join(join2, tempdat.id[
   by = c("Arb_EncounterId", "intervention")) %>%
   mutate(Seq = GroupID)
 
-#Create a sequence variable called Cohort that indicates Cohorts 1,2, or 3 that 
-# is based on the sequence number, which in turn is based on the Group ID of that
-# participants most recent visit.
+# Create a sequence variable called Cohort that indicates Cohorts 1, 2, or 3 that 
+# is based on the sequence number, which in turn is based on the Group ID
 join2$Cohort<-paste0("Cohort ", join2$Seq)
 
-# Create seq_df2 ----
-# Subset data set that meet the WPV criteria (either include only those with a 
-# WPV or include everyone). 
-# In other words, the index date marks when the 
-# participants  "enter" the study and seq_df2 contains all encounters the 
-# participants that meet eligibility criteria
+# Create seq_df2 ---------------------------------------------------------------
 # seq_df2 is a subset of join2(encounters) where the Encounter date is after
 # the Index date. Only encounters with an Index date should be filtered and only
 # encounters that satisfy eligibility + WPV should have an index date
@@ -451,7 +419,7 @@ seq_unique <- seq_df2 %>%
   select(Arb_PersonId, IndexDate) %>%
   distinct()
 
-# Comorbidities -----------------------------------------------------------
+# Get the top comorbidites from those in the baseline characteristics paper ----
 # Load the comorbidities of interest (cois), an Rdata set that was prepared using
 # a .csv file from Leigh containing the comorbidities of interest.
 load(
@@ -488,19 +456,128 @@ top_comorbidities <- dx_sub_coi_count %>%
   mutate(percent_overall = sum/nrow(seq_df2) * 100) %>%
   filter(percent_overall >= 3)
 
+# Medications for EE -----------------------------------------------------------
+# Process the medications separately to avoid introducing medications for 
+# EE patients that were captured before the index date
+
+meds_sub <- meds %>% 
+  filter(ActiveMed == "Y", 
+         Arb_PersonId %in% seq_df2$Arb_PersonId) %>%
+  mutate_at(c("MedicationName", "GenericName"), tolower)
+
+# Read in Leigh's medications
+meds_ref <- read.xlsx(
+  here("../baseline_characteristics/working_files/medications/medications.xlsx"),
+  sheet = "UniqueMedName")
+
+# Process meds_ref
+meds_ref <- meds_ref %>% 
+  mutate(weight.gain = ifelse(is.na(weight.gain), 0, 1 ),
+         weight.loss = ifelse(is.na(weight.loss), 0, 1 ),
+         AOM = ifelse(is.na(AOM), 0, 1 ))
+
+weightgain_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.gain==1])      
+weightloss_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.loss==1])
+AOM_meds <- unique(meds_ref$uniqueMedName[meds_ref$AOM==1])
+
+# Select columns and keep distinct rows
+meds_ref <- meds_ref %>% 
+  select(-Generic.name, -trade.names) %>%
+  distinct()
+
+## load the meds list
+meds_list <- read.xlsx(
+  here("../baseline_characteristics/working_files/medications/medications.xlsx"),
+  sheet="Medications")
+
+## Process meds list
+meds_list <-  meds_list %>%
+  mutate_at(c("Name", "GenericName"), tolower) %>% 
+  select(uniqueMedName, GenericName) %>%
+  drop_na() %>%
+  distinct()
+
+# Merge data frames, select columns
+meds_full <- meds_list %>% 
+  left_join(., meds_ref, by = "uniqueMedName") %>%
+  right_join(., meds_sub, by = "GenericName") %>%
+  select(all_of(c("Arb_PersonId","OrderedDate","uniqueMedName","weight.gain","weight.loss","AOM")))
+
+# filter out the meds_AOM data frame
+meds_AOM <- meds_full %>% 
+  filter(AOM == 1) %>%
+  left_join(., distinct(seq_df2, Arb_PersonId, IndexDate), by = "Arb_PersonId")
+
+#Subset to the time period of interest (baseline period)
+meds_full <- meds_full %>%
+  filter(OrderedDate >= Date.min, OrderedDate <= Date.max)
+
+meds_AOM <- meds_AOM %>%
+  filter(OrderedDate >= IndexDate, OrderedDate <= Date.max)
+
+#Remove duplicate medication types per person
+meds_full <- meds_full %>% 
+  select(-OrderedDate) %>%
+  distinct() %>%
+  arrange(Arb_PersonId)
+
+# Create an anti obesity medication data frame
+# n.b. at this point there will be duplicate Arb_PersonIds in the dataframe
+meds_AOM <- meds_AOM %>% distinct(Arb_PersonId, IndexDate, uniqueMedName)
+
+#Count number of meds during the baseline period
+meds_counts <- meds_full %>%
+  group_by(Arb_PersonId) %>%
+  summarise("N_MedsWeightGain_period" = sum(weight.gain),
+            "N_MedsWeightLoss_period" = sum(weight.loss),
+            .groups="rowwise")
+
+meds_counts_bymeds <- meds_full %>%
+  group_by(uniqueMedName) %>%
+  summarise("N_MedsWeightGain_period" = sum(weight.gain),
+            "N_MedsWeightLoss_period" = sum(weight.loss),
+            .groups="rowwise")
+
+# join meds_AOM, person ID and Cohort information
+meds_AOM <- meds_AOM %>%
+  left_join(., distinct(seq_df2, Arb_PersonId, Cohort), by = "Arb_PersonId")
+
+meds_counts_gain <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%weightgain_meds)
+meds_counts_loss <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%weightloss_meds)
+meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds)
+meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds)
+
+
+# Join the meds_counts and seq_df2 via left join
+seq_df2 <- left_join(seq_df2,
+                     meds_counts[,c("Arb_PersonId","N_MedsWeightGain_period","N_MedsWeightLoss_period")],
+                     by=c("Arb_PersonId"))
+
+seq_df2$N_MedsWeightGain_period[is.na(seq_df2$N_MedsWeightGain_period)] <- 0
+seq_df2$N_MedsWeightLoss_period[is.na(seq_df2$N_MedsWeightLoss_period)] <- 0
+
+# Convert the meds_AOM data to wide format
+meds_aom.ee <- meds_AOM %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = uniqueMedName, values_from = count) %>%
+  select(-IndexDate, -Cohort) %>%
+  distinct() %>%
+  group_by(Arb_PersonId) %>%
+  summarise_each(funs(sum(., na.rm = TRUE)))
+
+# Merge the data frames
+seq_df2 %<>%
+  left_join(meds_aom.ee, by = "Arb_PersonId")
+
+# Make a copy of the eligible and enrolled visits with their aom_medications and
+# set aside
+seq_df2.ee <- seq_df2
+
+
 # Now we backtrack to create seqdf2 with all visits not just those that occurred
-# on the index date
+# on the index date. Will add an index date
 seq_df2 <- join2
 
-# Unique visits
-# *** Original version.
-# seq_unique <- seq_df2 %>% 
-#   select(Arb_PersonId, IndexDate) %>%
-#   distinct()
-
-# *** Newer version to capture index dates from ENE. If this does not work then
-# create two EE and ENE, then get their index dates separately, find labs, etc.
-# and then glue them back together
 
 # Save the encounter ids that did not have an index date, these will need to 
 # be replaced later on to accurately get the ee data frame
@@ -513,10 +590,133 @@ encounters_wo_id <- seq_df2 %>%
 seq_df2 %<>%
   mutate(IndexDate = if_else(is.na(IndexDate), EncounterDate, IndexDate))
   
-seq_unique <- seq_df2 %>% 
+seq_unique <- seq_df2 %>%
   select(Arb_PersonId, IndexDate) %>%
   distinct()
 
+# Medications for ENE ----------------------------------------------------------
+# Filter out the EncounterIds for EE group
+seq_df2 %<>%
+  filter(!Arb_EncounterId %in% seq_df2.ee$Arb_EncounterId)
+
+# Process meds for the ENE group
+meds_sub <- meds %>% 
+  filter(ActiveMed == "Y", 
+         Arb_PersonId %in% seq_df2$Arb_PersonId) %>%
+  mutate_at(c("MedicationName", "GenericName"), tolower)
+
+# Read in Leigh's medications
+meds_ref <- read.xlsx(
+  here("../baseline_characteristics/working_files/medications/medications.xlsx"),
+  sheet = "UniqueMedName")
+
+# Process meds_ref
+meds_ref <- meds_ref %>% 
+  mutate(weight.gain = ifelse(is.na(weight.gain), 0, 1 ),
+         weight.loss = ifelse(is.na(weight.loss), 0, 1 ),
+         AOM = ifelse(is.na(AOM), 0, 1 ))
+
+weightgain_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.gain==1])      
+weightloss_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.loss==1])
+AOM_meds <- unique(meds_ref$uniqueMedName[meds_ref$AOM==1])
+
+# Select columns and keep distinct rows####
+meds_ref <- meds_ref %>% 
+  select(-Generic.name, -trade.names) %>%
+  distinct()
+
+# load the meds list
+meds_list <- read.xlsx(
+  here("../baseline_characteristics/working_files/medications/medications.xlsx"),
+  sheet="Medications")
+
+# Process meds list
+meds_list <-  meds_list %>%
+  mutate_at(c("Name", "GenericName"), tolower) %>% 
+  select(uniqueMedName, GenericName) %>%
+  drop_na() %>%
+  distinct()
+
+# Merge data frames, select columns
+meds_full <- meds_list %>% 
+  left_join(., meds_ref, by = "uniqueMedName") %>%
+  right_join(., meds_sub, by = "GenericName") %>%
+  select(all_of(c("Arb_PersonId","OrderedDate","uniqueMedName","weight.gain","weight.loss","AOM")))
+
+# filter out the meds_AOM data frame
+meds_AOM <- meds_full %>% 
+  filter(AOM == 1) %>%
+  left_join(., distinct(seq_df2, Arb_PersonId, IndexDate), by = "Arb_PersonId")
+
+#Subset to the time period of interest (baseline period)
+meds_full <- meds_full %>%
+  filter(OrderedDate >= Date.min, OrderedDate <= Date.max)
+
+meds_AOM <- meds_AOM %>%
+  filter(OrderedDate >= IndexDate, OrderedDate <= Date.max)
+
+#Remove duplicate medication types per person
+meds_full <- meds_full %>% 
+  select(-OrderedDate) %>%
+  distinct() %>%
+  arrange(Arb_PersonId)
+
+# Create an anti obesity medication data frame
+# n.b. at this point there will be duplicate Arb_PersonIds in the dataframe
+meds_AOM <- meds_AOM %>% distinct(Arb_PersonId, IndexDate, uniqueMedName)
+
+#Count number of meds during the baseline period
+meds_counts <- meds_full %>%
+  group_by(Arb_PersonId) %>%
+  summarise("N_MedsWeightGain_period" = sum(weight.gain),
+            "N_MedsWeightLoss_period" = sum(weight.loss),
+            .groups="rowwise")
+
+meds_counts_bymeds <- meds_full %>%
+  group_by(uniqueMedName) %>%
+  summarise("N_MedsWeightGain_period" = sum(weight.gain),
+            "N_MedsWeightLoss_period" = sum(weight.loss),
+            .groups="rowwise")
+
+# join meds_AOM, person ID and Cohort information
+meds_AOM <- meds_AOM %>%
+  left_join(., distinct(seq_df2, Arb_PersonId, Cohort), by = "Arb_PersonId")
+
+meds_counts_gain <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%weightgain_meds)
+meds_counts_loss <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%weightloss_meds)
+meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds)
+meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds)
+
+
+# join the meds counts
+seq_df2 <- left_join(seq_df2,
+                     meds_counts[,c("Arb_PersonId","N_MedsWeightGain_period","N_MedsWeightLoss_period")],
+                     by=c("Arb_PersonId"))
+
+seq_df2$N_MedsWeightGain_period[is.na(seq_df2$N_MedsWeightGain_period)] <- 0
+seq_df2$N_MedsWeightLoss_period[is.na(seq_df2$N_MedsWeightLoss_period)] <- 0
+
+# Convert the meds_AOM data to wide format
+meds_aom.ene <- meds_AOM %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = uniqueMedName, values_from = count) %>%
+  select(-IndexDate, -Cohort) %>%
+  distinct() %>%
+  group_by(Arb_PersonId) %>%
+  summarise_each(funs(sum(., na.rm = TRUE)))
+
+# Merge the data frames
+# *** Will need to go back and make sure that the EE visits after the index date
+# have been zeroed out, or that there is a way to filter out the EE patients
+seq_df2 %<>%
+  left_join(meds_aom.ene, by = "Arb_PersonId")
+
+
+seq_df2 <- bind_rows(seq_df2, seq_df2.ee) 
+
+
+
+# Comorbidities ----------------------------------------------------------------
 # Prepare the dx dataframe for processing and analysis
 # Filter to patients of interest, within the time period of interest, create two
 # new columns with modified ICD-10 code, merge in the Cohort # by personId, 
@@ -555,6 +755,7 @@ dx_sub_coi_count <- dx_sub_coi_count %>%
 seq_df2 <- left_join(seq_df2, dx_sub_coi_count, by = "Arb_PersonId") %>%
   mutate_at(vars(all_of(top_comorbidities$disease.state)), 
             ~replace(., is.na(.), 0))
+
 
 # Reasonable Ranges/Units  -----------------------------------------------------
 # Height inches to cm = 1 : 2.54
@@ -704,111 +905,6 @@ bariatric_dat <- bariatric_full %>%
 seq_df2 <- left_join(seq_df2, bariatric_dat, by = c("Arb_PersonId","IndexDate"))
 seq_df2$BariatricSurgery[is.na(seq_df2$BariatricSurgery)] <- 0
 
-
-# Medications -------------------------------------------------------------
-# From Leigh: “active meds” will be the most accurate to know if someone is 
-# actually taking a medication on their list. It is not uncommon for someone 
-# to prescribe a drug and the patient never takes it.
-# Time frame: During baseline period, modify the medication and generic names
-# One of the goals of this section is to merge meds ref with meds list.
-# These are merged to preserve uniqueMedName and a generic name and merge with
-# the binary variables of whether or not a medication is AOM, gain, or loss.
-
-meds_sub <- meds %>% 
-  filter(ActiveMed == "Y", 
-         Arb_PersonId %in% seq_df2$Arb_PersonId) %>%
-  mutate_at(c("MedicationName", "GenericName"), tolower)
-
-## Read in Leigh's medications ####
-meds_ref <- read.xlsx(
-  here("../baseline_characteristics/working_files/medications/medications.xlsx"),
-  sheet = "UniqueMedName")
-
-## Process meds_ref ####
-meds_ref <- meds_ref %>% 
-  mutate(weight.gain = ifelse(is.na(weight.gain), 0, 1 ),
-         weight.loss = ifelse(is.na(weight.loss), 0, 1 ),
-         AOM = ifelse(is.na(AOM), 0, 1 ))
-
-weightgain_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.gain==1])      
-weightloss_meds <- unique(meds_ref$uniqueMedName[meds_ref$weight.loss==1])
-AOM_meds <- unique(meds_ref$uniqueMedName[meds_ref$AOM==1])
-
-## Select columns and keep distinct rows####
-meds_ref <- meds_ref %>% 
-  select(-Generic.name, -trade.names) %>%
-  distinct()
-
-## load the meds list ####
-meds_list <- read.xlsx(
-  here("../baseline_characteristics/working_files/medications/medications.xlsx"),
-  sheet="Medications")
-
-## Process meds list    ####
-meds_list <-  meds_list %>%
-  mutate_at(c("Name", "GenericName"), tolower) %>% 
-  select(uniqueMedName, GenericName) %>%
-  drop_na() %>%
-  distinct()
-
-# Merge data frames, select columns
-meds_full <- meds_list %>% 
-  left_join(., meds_ref, by = "uniqueMedName") %>%
-  right_join(., meds_sub, by = "GenericName") %>%
-  select(all_of(c("Arb_PersonId","OrderedDate","uniqueMedName","weight.gain","weight.loss","AOM")))
-
-# filter out the meds_AOM data frame
-meds_AOM <- meds_full %>% 
-  filter(AOM == 1) %>%
-  left_join(., distinct(seq_df2, Arb_PersonId, IndexDate), by = "Arb_PersonId")
-
-#Subset to the time period of interest (baseline period)
-meds_full <- meds_full %>%
-  filter(OrderedDate >= Date.min, OrderedDate <= Date.max)
-
-meds_AOM <- meds_AOM %>%
-  filter(OrderedDate >= IndexDate, OrderedDate <= Date.max)
-
-#Remove duplicate medication types per person
-meds_full <- meds_full %>% 
-  select(-OrderedDate) %>%
-  distinct() %>%
-  arrange(Arb_PersonId)
-
-# Create an anti obesity medication data frame
-# n.b. at this point there will be duplicate Arb_PersonIds in the dataframe
-meds_AOM <- meds_AOM %>% distinct(Arb_PersonId, IndexDate, uniqueMedName)
-
-#Count number of meds during the baseline period
-meds_counts <- meds_full %>%
-  group_by(Arb_PersonId) %>%
-  summarise("N_MedsWeightGain_period" = sum(weight.gain),
-            "N_MedsWeightLoss_period" = sum(weight.loss),
-            .groups="rowwise")
-
-meds_counts_bymeds <- meds_full %>%
-  group_by(uniqueMedName) %>%
-  summarise("N_MedsWeightGain_period" = sum(weight.gain),
-            "N_MedsWeightLoss_period" = sum(weight.loss),
-            .groups="rowwise")
-
-# join meds_AOM, person ID and Cohort information
-meds_AOM <- meds_AOM %>%
-  left_join(., distinct(seq_df2, Arb_PersonId, Cohort), by = "Arb_PersonId")
-
-meds_counts_gain <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%weightgain_meds)
-meds_counts_loss <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%weightloss_meds)
-meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds)
-meds_counts_AOM <- subset(meds_counts_bymeds, meds_counts_bymeds$uniqueMedName%in%AOM_meds)
-
-
-# join the meds counts
-seq_df2 <- left_join(seq_df2,
-                     meds_counts[,c("Arb_PersonId","N_MedsWeightGain_period","N_MedsWeightLoss_period")],
-                     by=c("Arb_PersonId"))
-
-seq_df2$N_MedsWeightGain_period[is.na(seq_df2$N_MedsWeightGain_period)] <- 0
-seq_df2$N_MedsWeightLoss_period[is.na(seq_df2$N_MedsWeightLoss_period)] <- 0
 
 # Referrals --------------------------------------------------------------------
 #Time frame: during baseline period after Index WPV
@@ -996,9 +1092,9 @@ data %<>%
          PHQ9 = as.numeric(PHQ9),
          GAD7 = as.numeric(GAD7))
 
+toc()
 
-# Write file
-#save(seq_df2, file = "S:/FM/PATHWEIGH/Quantitative/Projects/ee_vs_ene/data/seq_df2_repeat_encounters_v1.rda")
-# Probably save the data here at this point to then be loaded into a .qmd doc
-save(data, meds_AOM, file = here("data", "ee_vs_ene_processed.rda"))
+
+# Write file -------------------------------------------------------------------
+save(data, meds_aom.ee, meds_aom.ene, file = here("data", "ee_vs_ene_processed.rda"))
 
