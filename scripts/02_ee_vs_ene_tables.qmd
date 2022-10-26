@@ -12,9 +12,15 @@ echo: false
     
 ---
 
+<!-- COMMENTS: This .qmd document produces the tables in the ee vs ene paper. It  -->
+<!-- relies on the data from the baseline characteristics paper and is produced by  -->
+<!-- the 01_make_data_for_ee_vs_ene.R script. -->
+
+
 ```{r}
 # Load Packages ----------------------------------------------------------------
-invisible(pacman::p_load(here,         # For managing directory paths
+invisible(
+  pacman::p_load(here,         # For managing directory paths
                magrittr,     # For the assignment pipe operator %<>%
                tidyverse,    # For data manipulation tools
                data.table,   # For reading .csv files
@@ -114,7 +120,7 @@ tab1 %>%
 
 # Patient Health Characteristics
 ```{r}
-# Patient Health Characteristics --------------------------------------
+# Patient Health Characteristics -----------------------------------------------
 tab2_cols <- names(data %>% select(Height, Weight_kgs, BMI, HeartRate, Respiratoryrate,
                             Systolic_blood_pressure, Diastolic_blood_pressure, Temperature,
                             TSH, Triglycerides, HDL, ALT, AST, A1C, eGFR, N_MedsWeightGain_period,
@@ -207,7 +213,10 @@ tab2 %>%
 
 # Comorbidities
 ```{r}
-# Comorbidities --------------------------------------
+# Table 3 is made up of 4 separate sub tables. From left to right these are 
+# tab3.a, sub_table 3.b.1., sub_table 3.b.2, and sub_table 3.b.3. All tables 
+# are then concatenated row wise.
+
 # Load the top comorbidities .csv file
 top_comorbidities <- read.csv(here("../baseline_characteristics/working_files/top_comorbidities_220121.csv"))
 newnames <- top_comorbidities$disease.state
@@ -221,7 +230,7 @@ tab3.a <- data %>%
   modify_spanning_header(all_stat_cols() ~ "**Overall**")
 
 # #Table 3 generating function
-make_sub_tab3 <- function(cohort){
+make_sub_tab3.b <- function(cohort){
   table <- data[data$Cohort == cohort,] %>%
     select(all_of(top_comorbidities$disease.state), Enrolled) %>%
     select(-Asthma, -`Vitamin D deficiency`) %>%
@@ -233,13 +242,13 @@ make_sub_tab3 <- function(cohort){
 }
 
 # Apply table generating function to all cohorts
-tab3_sub_tables <- future_map(cohorts, make_sub_tab3)
+tab3.b_sub_tables <- future_map(cohorts, make_sub_tab3.b)
 
 # Merge all Table 1 sub tables
 tab3 <- tbl_merge(tbls = list(tab3.a,
-                              tab3_sub_tables[[1]],
-                              tab3_sub_tables[[2]],
-                              tab3_sub_tables[[3]]),
+                              tab3.b_sub_tables[[1]],
+                              tab3.b_sub_tables[[2]],
+                              tab3.b_sub_tables[[3]]),
                   tab_spanner = c("**Overall**",
                                   "**Sequence 1**",
                                   "**Sequence 2**",
@@ -254,10 +263,18 @@ tab3 %>%
 
 # Referrals, Procedures, and Medications
 ```{r}
+# Table 4 is made up of 2 separate sub tables. The following code produces 
+# the first sub table 4.1
+
+# Table 4.1 is in turn made from 4 individual sub tables that are concatenated
+# rowise, Table 4.1.a, 4.1.b.1, 4.1.b.2, and 4.1.b.3.
+
+
 # Apply table generating function to all cohorts
 cohorts <- c("Cohort 1", "Cohort 2", "Cohort 3")
 
-# Referrals --------------------------------------
+# Part A -----------------------------------------------------------------------
+# Referrals & Procedures
 tab4.1.a <- data %>%
   select(Enrolled,Ref_BariatricSurgery:Ref_WellnessClinic, BariatricSurgery) %>%
   tbl_summary(by = Enrolled,
@@ -273,9 +290,9 @@ tab4.1.a <- data %>%
   modify_spanning_header(all_stat_cols() ~ "**Overall**")
 # modify_header(label = "**Referrals**")
 
-
+# Part B -----------------------------------------------------------------------
 # #Table 4 generating function
-make_sub_tab4.1 <- function(cohort){
+make_sub_tab4.1.b <- function(cohort){
   table <- data[data$Cohort == cohort,] %>%
     select(Enrolled,Ref_BariatricSurgery:Ref_WellnessClinic, BariatricSurgery) %>%
     tbl_summary(by = Enrolled,
@@ -295,23 +312,30 @@ make_sub_tab4.1 <- function(cohort){
 
 
 # Apply table generating function to all cohorts
-tab4.1_sub_tables <- future_map(cohorts, make_sub_tab4.1)
+tab4.1.b_sub_tables <- future_map(cohorts, make_sub_tab4.1)
 
-# Merge all Table 1 sub tables
+# Merge all Table 4.1 sub tables -----------------------------------------------
 tab4.1 <- tbl_merge(tbls = list(tab4.1.a,
-                              tab4.1_sub_tables[[1]],
-                              tab4.1_sub_tables[[2]],
-                              tab4.1_sub_tables[[3]]),
+                              tab4.1.b_sub_tables[[1]],
+                              tab4.1.b_sub_tables[[2]],
+                              tab4.1.b_sub_tables[[3]]),
                   tab_spanner = c("**Overall**",
                                   "**Sequence 1**",
                                   "**Sequence 2**",
                                   "**Sequence 3**"))
-
-
 ```
 
 ```{r, echo = FALSE}
-#Make table 4.2.a
+# Table 4 is made up of 2 separate sub tables. The following code produces 
+# the second sub table 4.2
+
+# Table 4.2 is in turn made from 4 individual sub tables that are concatenated
+# rowise, Table 4.2.a, 4.2.b.1, 4.2.b.2, and 4.2.b.3.
+
+
+
+#Make table 4.2
+# Part A -----------------------------------------------------------------------
 tab4.2.a <-  data %>%
   select(Enrolled, all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))) %>%
   mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
@@ -324,8 +348,9 @@ tab4.2.a <-  data %>%
   bold_labels()
 
 
+# Part B -----------------------------------------------------------------------
 # Table 4.2 generating function
-make_sub_tab4.2 <- function(cohort){
+make_sub_tab4.2.b <- function(cohort){
   table <- data[data$Cohort == cohort,] %>%
     select(Enrolled, all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))) %>%
     mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
@@ -340,25 +365,28 @@ make_sub_tab4.2 <- function(cohort){
 }
 
 # Apply table generating function to all cohorts
-tab4.2_sub_tables <- future_map(cohorts, make_sub_tab4.2)
+tab4.2.b_sub_tables <- future_map(cohorts, make_sub_tab4.2.b)
 
-# Merge all Table 1 sub tables
+
+# Merge all Table 4.2 sub tables -----------------------------------------------
 tab4.2 <- tbl_merge(tbls = list(tab4.2.a,
-                                tab4.2_sub_tables[[1]],
-                                tab4.2_sub_tables[[2]],
-                                tab4.2_sub_tables[[3]]),
+                                tab4.2.b_sub_tables[[1]],
+                                tab4.2.b_sub_tables[[2]],
+                                tab4.2.b_sub_tables[[3]]),
                     tab_spanner = c("**Overall**",
                                     "**Sequence 1**",
                                     "**Sequence 2**",
                                     "**Sequence 3**"))
+
 ```
 
 
 ```{r}
+# Table 4 is made up of 2 separate sub tables. The following code stacks tables
+# 4.1 and 4.2 column wise to produce the final table
 tab4 <- tbl_stack(list(tab4.1, tab4.2))
 
 tab4 %>%
   as_flex_table() %>% 
   fit_flextable_wordpage()
 ```
-

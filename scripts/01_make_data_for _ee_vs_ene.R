@@ -1072,7 +1072,6 @@ ene <-
   slice_head() %>%
   mutate(Cohort = str_c("Cohort ", GroupID))
 
-
 # Merge ene which initially contains only the first visit of ENE patients with
 # ene_gt1_clinic_cohorts which contains the same variables but Cohort has been
 # assigned to the clinic in which the most frequent visits take place for those
@@ -1094,7 +1093,5 @@ data %<>%
 
 toc()
 
-
 # Write file -------------------------------------------------------------------
 save(data, meds_aom.ee, meds_aom.ene, file = here("data", "ee_vs_ene_processed.rda"))
-
