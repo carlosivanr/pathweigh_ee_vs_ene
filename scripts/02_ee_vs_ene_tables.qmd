@@ -37,13 +37,12 @@ plan(multisession, workers = 4)
 
 
 ```{r}
-## Load seq_df2 ----------------------------------------------------------------
-# Keep in workspace as a back up
+# Load seq_df2 ----------------------------------------------------------------
 load(here("data", "ee_vs_ene_processed.rda"))
 ```
 
 ```{r create table to word function}
-# This function will modify the output dimensions of the flextables
+# This function will modify the output dimensions of flextables
 fit_flextable_wordpage <- function(ft, pgwidth = 7){
   ft_out <- ft %>% autofit()
   ft_out <- width(ft_out, 
@@ -331,8 +330,6 @@ tab4.1 <- tbl_merge(tbls = list(tab4.1.a,
 
 # Table 4.2 is in turn made from 4 individual sub tables that are concatenated
 # rowise, Table 4.2.a, 4.2.b.1, 4.2.b.2, and 4.2.b.3.
-
-
 
 #Make table 4.2
 # Part A -----------------------------------------------------------------------
