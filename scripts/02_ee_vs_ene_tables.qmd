@@ -52,7 +52,11 @@ use_df_printer()
 # This function will modify the output dimensions of flextables
 fit_flextable_wordpage <- function(ft, pgwidth = 7){
   ft_out <- ft 
-  
+  ft_out <- ft_out %>%
+    height_all(height = .5) %>%
+    bg(j = 4, part = "body", bg = "gray95") %>%
+    bg(i = 2, j = 4, part = "header", bg = "gray95") %>%
+    vline(j = 4, part = "all", border = officer::fp_border(color = "white", width = 4))
   # %>% autofit()
   # ft_out <- width(ft_out, 
   #                 width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
@@ -120,8 +124,9 @@ tab1 <- tbl_merge(tbls = list(tab1.a,
 #       filename = here("tables", "ee_vs_ene_table_1.pdf"))
 
 tab1 %>%
-  as_flex_table() %>% 
+  as_flex_table() %>%
   fit_flextable_wordpage()
+
 ```
 
 \newpage
