@@ -42,11 +42,20 @@ load(here("data", "ee_vs_ene_processed.rda"))
 ```
 
 ```{r create table to word function}
+# Set flextable defaults for all tables
+set_flextable_defaults(font.size = 10,
+                       padding = 2,
+                       theme_fun = "theme_vanilla",
+                       table.layout="autofit")
+use_df_printer()
+
 # This function will modify the output dimensions of flextables
 fit_flextable_wordpage <- function(ft, pgwidth = 7){
-  ft_out <- ft %>% autofit()
-  ft_out <- width(ft_out, 
-                  width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
+  ft_out <- ft 
+  
+  # %>% autofit()
+  # ft_out <- width(ft_out, 
+  #                 width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
   return(ft_out)
 }
 ```
@@ -266,7 +275,7 @@ tab3 %>%
 # the first sub table 4.1
 
 # Table 4.1 is in turn made from 4 individual sub tables that are concatenated
-# rowise, Table 4.1.a, 4.1.b.1, 4.1.b.2, and 4.1.b.3.
+# rowwise, Table 4.1.a, 4.1.b.1, 4.1.b.2, and 4.1.b.3.
 
 
 # Apply table generating function to all cohorts
@@ -311,7 +320,7 @@ make_sub_tab4.1.b <- function(cohort){
 
 
 # Apply table generating function to all cohorts
-tab4.1.b_sub_tables <- future_map(cohorts, make_sub_tab4.1)
+tab4.1.b_sub_tables <- future_map(cohorts, make_sub_tab4.1.b)
 
 # Merge all Table 4.1 sub tables -----------------------------------------------
 tab4.1 <- tbl_merge(tbls = list(tab4.1.a,
