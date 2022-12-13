@@ -28,6 +28,18 @@
 # frequent comorbidities would not match those in the baseline characteristics
 # paper.
 
+# Finally, the baseline characteristics paper and the ee vs ene paper differ in
+# the number of patients meet eligibility. In baseline char, it is a total of 
+# 164,432. However, in the ee vs ene data it is 164,443, resulting in a 
+# difference of 11 patients.The reason for this is because of the order of when 
+# encounters that have an NA for Provider NPI are removed. In the baseline char
+# paper, providers with NA as an NPI were removed towards the end of data proc-
+# essing, which resulted in eliminating some patients that were eligible and 
+# had a WPV, but did not have a provider NPI. In the ee vs ene, visits with NA
+# in provider NPI were removed earlier, giving the algorithm a chance to find
+# additional eligible visits. In order to match the ee vs ene data to the data
+# in the baseline characteristics paper, 11 patients were excluded from the 
+# ee vs ene data.
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 # Load libraries ---------------------------------------------------------------
@@ -132,7 +144,7 @@ join2$Insurance <- fct_collapse(join2$Insurance,
                                                "Managed Care", 
                                                "Special Accounts", 
                                                "Tricare", 
-                                               "UCHEALTH EMPLOYEE PLAN", 
+                                               "UCHEALTH EMPLOY<- PLAN", 
                                                "Worker's Comp"),
                                 `Self-Pay`= c("Indigent Care"),
                                 Medicaid = c("Managed Medicaid", 
@@ -1007,7 +1019,9 @@ length(table(ee$Cohort)) == 3
 
 
 # Create eligible but not enrolled ---------------------------------------------
-# ENE defined as meeting eligibility criteria but no WPV
+# For EE, the cohort is assigned based on their index WPV. But since ENE do not
+# have a WPV, then the following represents the approach towards assigning a
+# cohort variable. ENE defined as meeting eligibility criteria but no WPV
 
 # How many unique ene patients have more than one visit?
 nrow(visits %>%
@@ -1114,7 +1128,8 @@ seq_df2 %>%
 
 
 # The number of eligible patients in baseline characteristics paper. This is 11
-# more, because 11 extra patients were captured
+# more, because 11 extra patients were captured by a modification of the 
+# algorithm that selects which visits on the same day should be counted.
 # 164,443 
 seq_df2 %>%
      drop_na(ProviderNpi) %>%
@@ -1122,7 +1137,8 @@ seq_df2 %>%
      pull(Arb_PersonId) %>% 
      n_distinct()
 
-# The number of eligible patients in ee vs ene
+# The number of eligible patients in ee vs ene, is different by 11, because
+# There were 11 that were captured in baseline char
 # 164,432
 visits %>%
   filter(Eligible == 1) %>% 
