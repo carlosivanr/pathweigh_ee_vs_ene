@@ -48,7 +48,8 @@ pacman::p_load(tidyverse,
                data.table,
                openxlsx,
                here,
-               tictoc)
+               tictoc,
+               furrr)
 
 tic()
 # Load the data  ---------------------------------------------------------------
@@ -259,7 +260,6 @@ join2 <- join2 %>%
   #  filter(n() > 1) %>% # used to filter which are duplicated
   slice_head() %>%
   ungroup()
-
 
 # Defining Weight Prioritized Visit (WPV) ---------------------------------
 ## Relevant Chief Complaints
@@ -744,6 +744,7 @@ dx_sub <- dx %>%
 
 # Ensure that there is only one count per code header group by patient, group by 
 # disease.state because osteoarthritis spans multiple ICD-10 headers
+# *** Could be a bottle neck
 dx_sub_coi_count <- dx_sub %>% 
   group_by(Arb_PersonId, disease.state) %>%
   slice_head() %>%
@@ -851,9 +852,39 @@ labs_full <- subset(labs_full, !is.na(labs_full$NumericValue))
 labs_dat <- labs_full %>%
   filter((IndexDate-LabCollectionDate) >= -14 | (IndexDate-LabCollectionDate) <= 180)
 
-labs_dat <- labs_dat %>%
-  group_by(Arb_PersonId, IndexDate, Category) %>%
-  slice(which.min(abs(IndexDate-LabCollectionDate)))
+# ______________________________________________________________________________
+# Slicing labs was a bottle neck for processing. Incorporating parallel 
+# processing reduced processing time from about 7 minutes to about 2.5 minutes
+# Set the options for furrr----
+cores <- (future::availableCores() - 1)
+labs <- seq_along(1:cores)
+
+options(future.rng.onMisuse = "ignore")
+plan(multisession, workers = cores)
+
+# Set up the split_group
+labs_dat$split_group <- cut_number(labs_dat$Arb_PersonId, 
+                                   n = cores, 
+                                   labels = labs)
+
+
+# Slice labs function
+slice_labs <- function(data, split_by){
+  split_by <- enquo(split_by)
+  
+  data %>%
+    group_split(!!split_by) %>%
+    future_map_dfr(~.x %>%
+                     group_by(Arb_PersonId, IndexDate, Category) %>%
+                     slice((which.min(abs(IndexDate-LabCollectionDate))))
+    )
+}
+
+gc()
+labs_dat <- slice_labs(labs_dat, split_group)
+labs_dat %<>% select(-split_group)
+
+# ______________________________________________________________________________
 
 labs_dat <- subset(labs_dat, select=-c(LabCollectionDate))
 
@@ -866,6 +897,7 @@ seq_df2 <- left_join(seq_df2, labs_dat_wide, by=c("Arb_PersonId","IndexDate"))
 
 # Screeners ---------------------------------------------------------------
 screener <- flowsheets[grep("PHQ|GAD",flowsheets$FlowsheetRowDisplayName),]
+
 screener <- subset(screener, !is.na(screener$Value))
 
 #Checked with Leigh about dropping "A" scores
@@ -887,9 +919,29 @@ screener_dat <- screener_full %>%
   select(Arb_PersonId, IndexDate, FlowsheetDate, Value, Category) %>%
   filter((IndexDate-FlowsheetDate) >= -14 | (IndexDate-FlowsheetDate) <= 180)
 
-screener_dat <- screener_dat %>%
-  group_by(Arb_PersonId, IndexDate, Category) %>%
-  slice(which.min(abs(IndexDate-FlowsheetDate)))
+# ______________________________________________________________________________
+gc()
+
+# Set up the split_group
+screener_dat$split_group <- cut_number(screener_dat$Arb_PersonId, 
+                                   n = cores, 
+                                   labels = labs)
+
+# Slice screener function
+slice_screener <- function(data, split_by){
+  split_by <- enquo(split_by)
+  
+  data %>%
+    group_split(!!split_by) %>%
+    future_map_dfr(~.x %>%
+                     group_by(Arb_PersonId, IndexDate, Category) %>%
+                     slice((which.min(abs(IndexDate-FlowsheetDate))))
+    )
+}
+
+screener_dat <- slice_screener(screener_dat, split_group)
+screener_dat %<>% select(-split_group)
+# ______________________________________________________________________________
 
 screener_dat <- subset(screener_dat, select=-c(FlowsheetDate))
 
@@ -908,6 +960,7 @@ bariatric <- bariatric[!duplicated(bariatric), ]
 bariatric_full <- left_join(seq_unique,
                             bariatric[,c("Arb_PersonId","ProcedureDate")],
                             by="Arb_PersonId")
+
 
 bariatric_dat <- bariatric_full %>%
   filter(IndexDate <= ProcedureDate & ProcedureDate <= Date.max) %>%
@@ -936,6 +989,7 @@ referrals_dat <- referrals_full %>%
   filter(IndexDate <= ReferralDate & ReferralDate <= Date.max) %>%
   group_by(Arb_PersonId, IndexDate) %>%
   slice(which.min(abs(IndexDate-ReferralDate)))
+
 referrals_dat$Value <- 1
 
 referrals_dat_wide <- referrals_dat %>%
@@ -1105,7 +1159,6 @@ data %<>%
          PHQ9 = as.numeric(PHQ9),
          GAD7 = as.numeric(GAD7))
 
-toc()
 
 # CONSORT Diagram Variables ----------------------------------------------------
 # 1. Total number of patient encounters
@@ -1152,6 +1205,6 @@ visits %>%
   pull(Arb_PersonId) %>% 
   n_distinct()
 
-
+toc()
 # Write file -------------------------------------------------------------------
 #save(data, meds_aom.ee, meds_aom.ene, file = here("data", "ee_vs_ene_processed.rda"))
