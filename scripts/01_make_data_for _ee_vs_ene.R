@@ -32,24 +32,25 @@
 
 # Load libraries ---------------------------------------------------------------
 pacman::p_load(tidyverse,
-                data.table,
-                openxlsx,
-                here,
-                tictoc)
+               magrittr,
+               data.table,
+               openxlsx,
+               here,
+               tictoc)
 
 tic()
 # Load the data  ---------------------------------------------------------------
-# These are the individual epic compass tablea in Rdata format that need 
-# processing and were loaded 
+# These are the individual epic compass tables in Rdata format that need 
+# processing
 load(here("../baseline_characteristics/data/220121.RData"))
 
 
-# # Specify parameters -----------------------------------------------------------
+# Specify parameters -----------------------------------------------------------
 Date.min <- "2020-03-17"
 Date.max <- "2021-03-16"
 
 
-## Load the provider npi and sex data from the 06/06/2022 delivery ------------
+## Load the provider npi and sex data from the 06/06/2022 delivery -------------
 provider_sex <- fread(
   here("../../../PATHWEIGH_DATA_SECURE/20220606/C2976_Table2_Encounter_20220606.csv"),
   select = c("ProviderNpi", "ProviderSex"))
@@ -371,10 +372,8 @@ join2$WPV <- apply(join2[,grepl("WPV_",names(join2))],1,sum)
 join2$WPV_v2 <- 0
 join2$WPV_v2[join2$WPV > 0] <- 1
 
-# Consort Diagram --------------------------------------------------------------
-# Patients were assigned to the sequence of the clinic where they had an
-# eligible visit (satisfying Age, BMI, and WPV indicator)
 
+# Set Index Dates --------------------------------------------------------------
 #baseline_index is determined by whether or not the patient has a visit during
 # the specified date range.
 baseline_index <- which(
@@ -407,6 +406,7 @@ join2 <- left_join(join2, tempdat.id[
 # is based on the sequence number, which in turn is based on the Group ID
 join2$Cohort<-paste0("Cohort ", join2$Seq)
 
+
 # Create seq_df2 ---------------------------------------------------------------
 # seq_df2 is a subset of join2(encounters) where the Encounter date is after
 # the Index date. Only encounters with an Index date should be filtered and only
@@ -419,7 +419,7 @@ seq_unique <- seq_df2 %>%
   select(Arb_PersonId, IndexDate) %>%
   distinct()
 
-# Get the top comorbidites from those in the baseline characteristics paper ----
+# Get the top comorbidities from those in the baseline characteristics paper ----
 # Load the comorbidities of interest (cois), an Rdata set that was prepared using
 # a .csv file from Leigh containing the comorbidities of interest.
 load(
@@ -975,7 +975,7 @@ ee <- visits %>%
 # *** if not, then it may be best to create the index date as normal, set those
 # into a separate data frame named EE. Then exclude those from the larger data
 # set, then find those who are ENE. Then merge the two data sets to count the
-# meds correctly, problemt may be some EE getting double counted
+# meds correctly, problem may be some EE getting double counted
 
 
 # What are the IDs that are in visits, but not all_unique_ids
@@ -1093,5 +1093,49 @@ data %<>%
 
 toc()
 
+# CONSORT Diagram Variables ----------------------------------------------------
+# 1. Total number of patient encounters
+# 745,074
+nrow(seq_df2)
+
+# 2. Total number of unique patients
+# 277,467
+seq_df2 %>%
+  pull(Arb_PersonId) %>%
+  n_distinct()
+
+# 3. Total number of unique patients that are eligible and enrolled
+# *** Does not exclude those that have NA NPI, matches baseline characteristics
+# 164,904
+seq_df2 %>% 
+  filter(Age >= 18, BMI_use >= 25) %>% 
+  pull(Arb_PersonId) %>% 
+  n_distinct()
+
+
+# The number of eligible patients in baseline characteristics paper. This is 11
+# more, because 11 extra patients were captured
+# 164,443 
+seq_df2 %>%
+     drop_na(ProviderNpi) %>%
+     filter(Eligible == 1) %>% 
+     pull(Arb_PersonId) %>% 
+     n_distinct()
+
+# The number of eligible patients in ee vs ene
+# 164,432
+visits %>%
+  filter(Eligible == 1) %>% 
+  pull(Arb_PersonId) %>% 
+  n_distinct()
+
+# The number of eligible and enrolled patients  
+# 20,383
+visits %>%
+  filter(Eligible == 1, Enrolled == 1) %>% 
+  pull(Arb_PersonId) %>% 
+  n_distinct()
+
+
 # Write file -------------------------------------------------------------------
-save(data, meds_aom.ee, meds_aom.ene, file = here("data", "ee_vs_ene_processed.rda"))
+#save(data, meds_aom.ee, meds_aom.ene, file = here("data", "ee_vs_ene_processed.rda"))
