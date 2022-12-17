@@ -29,8 +29,8 @@
 # paper.
 
 # Finally, the baseline characteristics paper and the ee vs ene paper differ in
-# the number of patients meet eligibility. In baseline char, it is a total of 
-# 164,432. However, in the ee vs ene data it is 164,443, resulting in a 
+# the number of patients that meet eligibility. In baseline char, it is a total
+# of 164,432. However, in the ee vs ene data it is 164,443, resulting in a 
 # difference of 11 patients.The reason for this is because of the order of when 
 # encounters that have an NA for Provider NPI are removed. In the baseline char
 # paper, providers with NA as an NPI were removed towards the end of data proc-
@@ -40,6 +40,20 @@
 # additional eligible visits. In order to match the ee vs ene data to the data
 # in the baseline characteristics paper, 11 patients were excluded from the 
 # ee vs ene data.
+
+#n.b. for the EE patients:
+# 20,411 in seq_df2.ee was made after processing the ee group from the baseline
+#  characteristics paper. Not filtered by provider NPI != NA. Filtering this
+#  data frame results in 20,383. Index date assigned first
+# 20,394, is what should have been assigned if the order of processing was to
+#  first filter for provider NPI, then assign index date. because then the 
+#  index date would have been assigned to a subsequent visit. We needed NPIs to 
+#  ensure that visit could have been billed. Can't bill without NPI.
+# 20,383, filtered for provider NPI != NA, and indexDate == EncounterDate and
+#  corresponds to the same group of patients in the baseline char paper.
+
+#n.b. for the ENE patients:
+#
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 # Load libraries ---------------------------------------------------------------
@@ -63,7 +77,7 @@ Date.min <- "2020-03-17"
 Date.max <- "2021-03-16"
 
 
-## Load the provider npi and sex data from the 06/06/2022 delivery -------------
+# Load the provider npi and sex data from the 06/06/2022 delivery --------------
 provider_sex <- fread(
   here("../../../PATHWEIGH_DATA_SECURE/20220606/C2976_Table2_Encounter_20220606.csv"),
   select = c("ProviderNpi", "ProviderSex"))
@@ -86,18 +100,18 @@ provider_sex <- provider_sex %>%
 encounter_sub <- left_join(encounter_sub, 
                            provider_sex, 
                            by = "ProviderNpi") %>%
-  select(Arb_PersonId:ProviderNpi, 
-         ProviderSex, 
-         everything())
+                 select(Arb_PersonId:ProviderNpi, 
+                        ProviderSex, 
+                        everything())
 
 
 # Merge Encounter, Patient, and Clinic data sets -------------------------------
 join2 <- left_join(encounter_sub,
                    patient,
                    by = "Arb_PersonId") %>%
-  left_join(.,
-            clinic %>% select(DepartmentEpicId, GroupID),
-            by = "DepartmentEpicId")
+         left_join(.,
+                   clinic %>% select(DepartmentEpicId, GroupID),
+                   by = "DepartmentEpicId")
 
 # Create intervention variable depending on GroupID and time period seen in
 time1change <- "2021-03-17"
@@ -127,7 +141,8 @@ join2 <- join2 %>%
   mutate_at("Age", 
             ~ifelse(. > 90, 90, .))
 
-##Some patients have heights or weights of -999, make NA
+# Weight -----------------------------------------------------------------------
+# Set patient weights to NA if they are equal to - 999
 join2 <- join2 %>%
   mutate_at(c("Height", 
               "Weight"),
@@ -136,7 +151,9 @@ join2 <- join2 %>%
 # Weight unit is originally in ounces, convert to pounds
 join2$Weight_lbs <- join2$Weight/16
 
-## Make insurance column with collapsed categories (from Mark)
+
+# Insurance --------------------------------------------------------------------
+# Collapsed insurance categories according to values from Mark Gritz
 join2 <- join2 %>% 
   mutate(Insurance = as.factor(FinancialClass))
 
@@ -154,9 +171,13 @@ join2$Insurance <- fct_collapse(join2$Insurance,
                                 Medicare = c("Managed Medicare",
                                              "Medicare")) 
 
-##Clean up some of the variables, "" (blank) set to NA
+
+# Sex --------------------------------------------------------------------------
+# Clean up the sex variable, set to NA if it equal "X"
 join2$Sex <- na_if(join2$Sex, "X")
 
+
+# Race & Ethnicity -------------------------------------------------------------
 # Create a new variable, Race_Ethnicity where any Hispanic in Ethnicity is set 
 # to Hispanic or Latino and where any NA in Race is set to Unknown
 join2 <- join2 %>% 
@@ -175,6 +196,8 @@ join2$Race_Ethnicity <- join2$Race_Ethnicity %>%
                            "Native Hawaiian and Other Pacific Islander",
                            "Other Pacific Islander"))
 
+
+# Smoking ----------------------------------------------------------------------
 # Collapse smoking categories - current, former, never, other
 join2$SmokingStatus <- join2$Smoking_Status %>%
   as_factor() %>%
@@ -191,7 +214,7 @@ join2$SmokingStatus <- join2$Smoking_Status %>%
                              "Never Assessed")) %>%
   recode_factor(., Unknown = NA_character_)
 
-# Factor the original Smoking_status columns. 
+# Factor the original Smoking_status columns 
 join2$Smoking_Status <- factor(join2$Smoking_Status,
                                levels=c("Current Every Day Smoker",
                                         "Heavy Tobacco Smoker",
@@ -204,6 +227,8 @@ join2$Smoking_Status <- factor(join2$Smoking_Status,
                                         "Unknown If Ever Smoked",
                                         "Never Assessed"))
 
+
+# Clean up vitals --------------------------------------------------------------
 # Set vitals variables to modify
 cols_to_mod <- c("HeartRate",
                  "Respiratoryrate",
@@ -238,7 +263,7 @@ join2 <- join2 %>%
          BMI_use = ifelse(is.na(BMI), BMI_comp, BMI_use))
 
 
-# Inclusion Criteria -----------------------------------------------------------
+# Eligible Variable ------------------------------------------------------------
 # Eligible patients: Adults (age >=18) with BMI>=25 at index visit. 
 
 # Create variable to indicate if the encounter is eligible (Age >=18, BMI>=25)
@@ -250,7 +275,8 @@ join2 <- join2 %>%
 #(600 lbs) are excluded.
 join2$Eligible[which(join2$Weight>9600 | join2$Height<54 | join2$Height>90)] <- 0
 
-# Repeat Encounters ----------------------------------------------
+
+# Repeat Encounters ------------------------------------------------------------
 # Count the number of NAs in each row, arrange them, then take the head to keep 
 # for duplicated encounters
 join2 <- join2 %>%
@@ -261,7 +287,7 @@ join2 <- join2 %>%
   slice_head() %>%
   ungroup()
 
-# Defining Weight Prioritized Visit (WPV) ---------------------------------
+# WPV by Chief Complaints ------------------------------------------------------
 ## Relevant Chief Complaints
 all_chief_complaints <- names(
   table(join2$EncounterChiefComplaints[which(join2$Eligible==1)]))              
@@ -304,7 +330,7 @@ join2$WPV_CC[which(
   join2$EncounterChiefComplaints %in% relevant_chief_complaints)] <- 1
 
 
-# ICD Codes --------------------------------------------------------------------
+# WPV by ICD 10 Codes ----------------------------------------------------------
 # Relevant ICD codes were the E66 series (below) and Z68.25-Z68.45.
 ###Are only interested in codes for overweight, obesity, etc
 #E66.01 E66.09  E66.1  E66.2  E66.3  E66.8  E66.9 Z68.25-Z68.45
@@ -327,7 +353,7 @@ join2$WPV_ICD <- 0
 join2$WPV_ICD[which(join2$Arb_EncounterId %in% icd_encounters)] <- 1              
 
 
-# Flowsheets -------------------------------------------------------------------
+# WPV by Flowsheets ------------------------------------------------------------
 # Flowsheets - for Obesity Brief HPI and PATHWEIGH flowsheets
 # Below are the number of instances the PATHWEIGH flowsheet was used since 
 # roll-out. Neither flowsheet was used during the baseline period.
@@ -359,7 +385,7 @@ join2$WPV_PW_flow[which(join2$Arb_EncounterId %in% PW_encounter_ids)] <- 1
 join2$WPV_OBHPI[which(join2$WPV_PW_flow==1)] <- 0                               
 
 
-# Visit Type --------------------------------------------------------------
+# WPV by Visit Type ------------------------------------------------------------
 # WPVs can be defined using Visit Type IDs, where in-person VisitTypeID = 413519 
 # and virtual VisitTypeID = 415110. 
 
@@ -371,7 +397,7 @@ join2$WPV_IP[which(join2$VisitTypeId==413519)] <- 1
 join2$WPV_TH[which(join2$VisitTypeId==415110)] <- 1                             
 
 
-# Use of PATHWEIGH Smart Set ---------------------------------------------------
+# WPV by use of PATHWEIGH Smart Set --------------------------------------------
 # WPVs can be defined through use of the PATHWEIGH Smart Set.
 join2$WPV_smart <- 0
 
@@ -431,9 +457,10 @@ seq_unique <- seq_df2 %>%
   select(Arb_PersonId, IndexDate) %>%
   distinct()
 
+
 # Get the top comorbidities from those in the baseline characteristics paper ----
-# Load the comorbidities of interest (cois), an Rdata set that was prepared using
-# a .csv file from Leigh containing the comorbidities of interest.
+# Load the comorbidities of interest (cois), an Rdata set that was prepared 
+# using a .csv file from Leigh containing the comorbidities of interest.
 load(
   here("../baseline_characteristics/working_files/comorbidities/comorbidities_of_interest_220121.RData"))
 
@@ -467,6 +494,7 @@ top_comorbidities <- dx_sub_coi_count %>%
   arrange(desc(sum)) %>%
   mutate(percent_overall = sum/nrow(seq_df2) * 100) %>%
   filter(percent_overall >= 3)
+
 
 # Medications for EE -----------------------------------------------------------
 # Process the medications separately to avoid introducing medications for 
@@ -587,9 +615,8 @@ seq_df2.ee <- seq_df2
 
 
 # Now we backtrack to create seqdf2 with all visits not just those that occurred
-# on the index date. Will add an index date
+# on the index date. This will add an index date
 seq_df2 <- join2
-
 
 # Save the encounter ids that did not have an index date, these will need to 
 # be replaced later on to accurately get the ee data frame
@@ -606,8 +633,9 @@ seq_unique <- seq_df2 %>%
   select(Arb_PersonId, IndexDate) %>%
   distinct()
 
+
 # Medications for ENE ----------------------------------------------------------
-# Filter out the EncounterIds for EE group
+# Filter out the EncounterIds found in seq_df2.ee (EE group)
 seq_df2 %<>%
   filter(!Arb_EncounterId %in% seq_df2.ee$Arb_EncounterId)
 
@@ -1009,11 +1037,15 @@ seq_df2 %<>%
 
 
 # Additional processing --------------------------------------------------------
+# Visits is created to perform some additional processing and exclusion of rows
+# All visits with provider NPI as NA are dropped, including vistis from the 11
+# patients that were unaccounted for in the baseline characteristics paper.
 visits <- seq_df2
 
 # - BMI_use to BMI - Set names BMI_use was old, BMI is new
 # - Enrolled == Eligible (age and bmi criteria) and WPV > 0
 # - Drop Npis - Drop rows if NPI is na
+# - This will take the 745,074 visits down to 654,781
 visits %<>%
   drop_na(ProviderNpi) %>%
   select(-BMI, -BMI_comp) %>%
@@ -1037,19 +1069,18 @@ ee <- visits %>%
   filter(EncounterDate == IndexDate)
 
 
-# *** problem with meds count may be here, since seq_df2 has all the index dates
-# *** if not, then it may be best to create the index date as normal, set those
-# into a separate data frame named EE. Then exclude those from the larger data
-# set, then find those who are ENE. Then merge the two data sets to count the
-# meds correctly, problem may be some EE getting double counted
-
-
-# What are the IDs that are in visits, but not all_unique_ids
+# What are the IDs that are in visits, but not all_unique_ee_ids
+# all_unique_ee_ids represents the 20,394 patients that are eligible and 
+# enrolled, but the baseline characteristics paper reports on 20,383. The ee 
+# dataframe contains all of the 20,383. The 20,411 did not filter for provider
+# NPIs with NAs.
 ids_to_exclude <- all_unique_ee_ids %>%
   filter(!Arb_PersonId %in% ee$Arb_PersonId)
 
-# Exclude the 11 patients that were excluded from baseline code because NPI NA
-# was dropped after instead of before the assignment of an indexDate
+# Exclude the visits of the 11 patients that were excluded from baseline code 
+# because NPI NA was dropped after, instead of before, the assignment of an indexDate. i.e.
+# some patients were assigned an index date even though it was decided to 
+# exclude them.
 visits %<>%
   filter(!Arb_PersonId %in% ids_to_exclude$Arb_PersonId)
 
@@ -1062,7 +1093,7 @@ nrow(visits %>% filter(EncounterDate == IndexDate)) == dim(ee)[1]
 nrow(ee %>% filter(Enrolled == 1)) == dim(ee)[1]
 
 # Is the number of unique enrolled patients equal to the number of patients in ee
-# Should match if the 11 patients are excluded
+# Should match if the 11 patients with provider NPI as na are excluded
 visits %>% filter(Enrolled == 1) %>% pull(Arb_PersonId) %>% n_distinct() == dim(ee)[1]
 
 # Check that there are no patients in ee that are coded in intervention
@@ -1075,7 +1106,10 @@ length(table(ee$Cohort)) == 3
 # Create eligible but not enrolled ---------------------------------------------
 # For EE, the cohort is assigned based on their index WPV. But since ENE do not
 # have a WPV, then the following represents the approach towards assigning a
-# cohort variable. ENE defined as meeting eligibility criteria but no WPV
+# cohort variable. ENE defined as meeting eligibility criteria but no WPV. For 
+# ene patients who were seen at multiple clinics, cohort is assigned as the 
+# clinic with the most visits, if tied select the first observation (Group). For
+# all others, cohort is assigned according to the 
 
 # How many unique ene patients have more than one visit?
 nrow(visits %>%
@@ -1090,15 +1124,16 @@ nrow(visits %>%
        group_by(Arb_PersonId) %>%
        summarise(clinics = n_distinct(GroupID)) %>%
        filter(clinics > 1))
-
-# Get the Arb_PersonIds of those that went to more than one clinic
+#_______________________________________________________________________________
+# Capture the Arb_PersonIds of patients who had visits at clinics assigned to 
+# more than one cohort.
 gt1_clinic_ids <- visits %>%
   filter(!Arb_PersonId %in% ee$Arb_PersonId) %>%
   group_by(Arb_PersonId) %>%
   summarise(clinics = n_distinct(GroupID)) %>%
   filter(clinics > 1)
 
-# Get the number of visits for each patient at each clinic
+# Get the number of visits for each patient that is ene in each cohort
 n_visits_per_patient_clinic <- visits %>%
   filter(Enrolled == 0,
          Eligible == 1) %>%
@@ -1107,8 +1142,9 @@ n_visits_per_patient_clinic <- visits %>%
   filter(Arb_PersonId %in% gt1_clinic_ids$Arb_PersonId)
 
 
-# For ene patients who were seen at multiple clinics, cohort is assigned as the 
-# clinic with the most visits, if tied select the first observation (Group)
+# For ene patients who were seen at multiple clinics, the cohort to be assigned
+# is the cohort with the most visits. If tied, then select the 1st obs after
+# grouping by patient id.
 ene_gt1_clinic_cohorts <- 
   n_visits_per_patient_clinic %>% 
   group_by(Arb_PersonId) %>%
@@ -1117,8 +1153,11 @@ ene_gt1_clinic_cohorts <-
   mutate(Cohort = str_c("Cohort ", GroupID)) %>%
   select(Arb_PersonId, Cohort)
 
-# Assign a cohort to those with out visits at multiple clinic which is the first
-# Cohort after arranging visits by date as was done for EE. 
+# Assign a cohort to those with out visits at multiple clinics which is the first
+# Cohort after arranging visits by date as was done for EE.
+# Coalesce takes the first nonmissing element, but should assing Cohort.y which
+# is set to the cohort where most visits occurred. Since this slices by person
+# id, it should only be one visit per person
 ene_gt1 <- visits %>%
   filter(Eligible == 1, 
          Arb_PersonId %in% ene_gt1_clinic_cohorts$Arb_PersonId) %>%
@@ -1129,6 +1168,10 @@ ene_gt1 <- visits %>%
   slice_head() %>%
   select(Arb_PersonId:WPV_v2, Cohort, everything())
 
+# ______________________________________________________________________________
+# For ene patients that did not go to more than one clinic, we take the first 
+# visit in the time period to capture outcome variables. Since there is only
+# one clinic that they visit, their cohort stays constant.
 ene <- 
   visits %>%
   filter(!Arb_PersonId %in% ee$Arb_PersonId,
@@ -1191,7 +1234,7 @@ seq_df2 %>%
      n_distinct()
 
 # The number of eligible patients in ee vs ene, is different by 11, because
-# There were 11 that were captured in baseline char
+# There were 11 that were not captured in baseline char
 # 164,432
 visits %>%
   filter(Eligible == 1) %>% 
