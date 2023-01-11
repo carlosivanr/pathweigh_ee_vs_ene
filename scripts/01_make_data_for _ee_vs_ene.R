@@ -7,30 +7,37 @@
 # This script is used to generate data for the eligible and enrolled vs eligible
 # not enrolled paper (EE vs ENE).
 
-# The EE vs ENE paper is based off of the data used in the baseline 
-# characteristics paper and relies on code drafted in 
-# 02_Rimage_to_analysis_datasets.R script. 
+# Creates 3 principal data frames
+# 1. seq_df2
+# 2. visits
+# 3. data - used to make the tables for the EE vs ENE paper
 
-# NOTES: 
-# The 02_Rimage_to_analysis_datasets.R script was originally designed to only 
-# fully processed data for encounters/patients that were eligible and enrolled. 
+# seq_df2 ___________________________
+# seq_df2 was the main data frame from which all of the baseline characteristics
+# measurements were taken from and contains all the encounters for the baseline
+# period.
 
-# As a result, comorbidities, labs, and medications sections in this script 
-# are modified to apply the same procedures to the eligible and not enrolled 
-# encounters/patients. Applying the code with out modification to the full data 
-# results in the introduction of artefactual values.
+# visits ____________________________
+# visits is initially made from seq_df2, but then further eliminates encounters
+# for which ProviderNpi contains an NA and creates the enrolled variable
 
-# In addition, the comorbidities in the baseline paper were based on the total
-# percentages from only the EE patients. Thus this script also addresses using 
-# the same comorbidities in the baseline characteristics paper to determine the 
-# percentage of each comorbidity in the ENE patients. Otherwise, the algorithms 
-# would count the comorbidities for all EE and ENE patients and the most 
-# frequent comorbidities would not match those in the baseline characteristics
-# paper.
+# data _______________________________
+# data is a data frame that contains one and only one visit per person. In order
+# to capture only one visit per person, an "index visit" had to be assigned to
+# those who were eligible but not enrolled. The strategy to do this was based
+# off of previous code. However, one key difference is in the order of which
+# providers with NA as NPI were excluded when compared to the baseline 
+# characteristics paper. In bl char, providers with NA NPI were excluded at the
+# end of the processing stream and after the index visit had been assigned.
+# Here, the providers with NA NPI are excluded first, which allows the algorithm
+# to assign other eligible visits as the index visit. However, this resulted in
+# 11 extra patients in the data that were not present in baseline char.
+# In order to match the baseline char figures, these 11 patients must be 
+# excluded. 
 
-# Finally, the baseline characteristics paper and the ee vs ene paper differ in
-# the number of patients that meet eligibility. In baseline char, it is a total
-# of 164,432. However, in the ee vs ene data it is 164,443, resulting in a 
+# The baseline characteristics paper and the ee vs ene paper differ in the 
+# number of patients that meet eligibility. In baseline char, it is a total of 
+# 164,432. However, in the ee vs ene data it is 164,443, resulting in a 
 # difference of 11 patients.The reason for this is because of the order of when 
 # encounters that have an NA for Provider NPI are removed. In the baseline char
 # paper, providers with NA as an NPI were removed towards the end of data proc-
@@ -41,19 +48,18 @@
 # in the baseline characteristics paper, 11 patients were excluded from the 
 # ee vs ene data.
 
-#n.b. for the EE patients:
+
+# NOTES:___________________
+# n.b. for the EE patients:
 # 20,411 in seq_df2.ee was made after processing the ee group from the baseline
 #  characteristics paper. Not filtered by provider NPI != NA. Filtering this
-#  data frame results in 20,383. Index date assigned first
+#  data frame results in 20,383 (Index date was assigned first).
 # 20,394, is what should have been assigned if the order of processing was to
 #  first filter for provider NPI, then assign index date. because then the 
 #  index date would have been assigned to a subsequent visit. We needed NPIs to 
 #  ensure that visit could have been billed. Can't bill without NPI.
-# 20,383, filtered for provider NPI != NA, and indexDate == EncounterDate and
+# 20,383, filtered for provider NPI != NA, and indexDate == EncounterDate
 #  corresponds to the same group of patients in the baseline char paper.
-
-#n.b. for the ENE patients:
-#
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 # Load libraries ---------------------------------------------------------------
@@ -635,6 +641,11 @@ seq_unique <- seq_df2 %>%
 
 
 # Medications for ENE ----------------------------------------------------------
+# The 02_Rimage_to_analysis_datasets.R script was originally designed to only 
+# fully processed data for encounters/patients that were eligible and enrolled.
+# The following represents the strategy towards preparing meds, comorbidities, 
+# labs, etc for the ene patients.
+
 # Filter out the EncounterIds found in seq_df2.ee (EE group)
 seq_df2 %<>%
   filter(!Arb_EncounterId %in% seq_df2.ee$Arb_EncounterId)
@@ -757,6 +768,14 @@ seq_df2 <- bind_rows(seq_df2, seq_df2.ee)
 
 
 # Comorbidities ----------------------------------------------------------------
+# The comorbidities in the baseline paper were based on the total percentages 
+# from only the EE patients. Thus this script also addresses using the same 
+# comorbidities in the baseline characteristics paper to determine the 
+# percentage of each comorbidity in the ENE patients. Otherwise, the algorithms 
+# would count the comorbidities for all EE and ENE patients and the most 
+# frequent comorbidities would not match those in the baseline characteristics
+# paper.
+
 # Prepare the dx dataframe for processing and analysis
 # Filter to patients of interest, within the time period of interest, create two
 # new columns with modified ICD-10 code, merge in the Cohort # by personId, 
@@ -1036,16 +1055,19 @@ seq_df2 %<>%
   mutate(IndexDate = ifelse(Arb_EncounterId %in% encounters_wo_id$Arb_EncounterId, NA, IndexDate))
 
 
-# Additional processing --------------------------------------------------------
+# Visits  ----------------------------------------------------------------------
 # Visits is created to perform some additional processing and exclusion of rows
-# All visits with provider NPI as NA are dropped, including vistis from the 11
-# patients that were unaccounted for in the baseline characteristics paper.
+# All visits with provider NPI as NA are dropped, including visits from the 11
+# patients that were not captured in the baseline characteristics paper.
 visits <- seq_df2
 
 # - BMI_use to BMI - Set names BMI_use was old, BMI is new
 # - Enrolled == Eligible (age and bmi criteria) and WPV > 0
 # - Drop Npis - Drop rows if NPI is na
 # - This will take the 745,074 visits down to 654,781
+# - n.b. the Enrolled variable works on the visit level, not at the patient 
+#   level. There are some patients who are Eligible and Enrolled in the study
+#   but also have non-enrolled visits, perhaps due to lack of WPV
 visits %<>%
   drop_na(ProviderNpi) %>%
   select(-BMI, -BMI_comp) %>%
@@ -1084,6 +1106,9 @@ ids_to_exclude <- all_unique_ee_ids %>%
 visits %<>%
   filter(!Arb_PersonId %in% ids_to_exclude$Arb_PersonId)
 
+# Added 12/20/2022, but not tested, to make Enrolled a dichotomous variables
+# visits %>%
+#   mutate(Enrolled = ifelse(Arb_PersonId %in% ee$Arb_PersonId, 1, 0))
 
 # Check ee --------------------------------------------------------------------- 
 # Do all visits in ee have matching encounter and index dates?
@@ -1125,8 +1150,8 @@ nrow(visits %>%
        summarise(clinics = n_distinct(GroupID)) %>%
        filter(clinics > 1))
 #_______________________________________________________________________________
-# Capture the Arb_PersonIds of patients who had visits at clinics assigned to 
-# more than one cohort.
+# Capture the Arb_PersonIds of ENE patients who had visits at clinics assigned 
+# to more than one cohort.
 gt1_clinic_ids <- visits %>%
   filter(!Arb_PersonId %in% ee$Arb_PersonId) %>%
   group_by(Arb_PersonId) %>%
@@ -1155,7 +1180,7 @@ ene_gt1_clinic_cohorts <-
 
 # Assign a cohort to those with out visits at multiple clinics which is the first
 # Cohort after arranging visits by date as was done for EE.
-# Coalesce takes the first nonmissing element, but should assing Cohort.y which
+# Coalesce takes the first nonmissing element, but should assign Cohort.y which
 # is set to the cohort where most visits occurred. Since this slices by person
 # id, it should only be one visit per person
 ene_gt1 <- visits %>%
@@ -1190,8 +1215,6 @@ ene <-
 data <- bind_rows(ee, ene, ene_gt1)
 rm(ene_gt1, ene_gt1_clinic_cohorts, gt1_clinic_ids, n_visits_per_patient_clinic, tempdat.id)
 
-data %<>%
-  mutate(Enrolled = ifelse(Enrolled == 1, "EE", "ENE"))
 
 data %<>%
   mutate(PHQ2_Completed = ifelse(is.na(PHQ2_Completed), 0, PHQ2_Completed),
@@ -1204,28 +1227,31 @@ data %<>%
 
 
 # CONSORT Diagram Variables ----------------------------------------------------
-# 1. Total number of patient encounters
+## 1. Total number of patient encounters ----
 # 745,074
 nrow(seq_df2)
 
-# 2. Total number of unique patients
+## 2. Total number of unique patients ----
+# *** This counts those with providerNpi as NA
 # 277,467
 seq_df2 %>%
   pull(Arb_PersonId) %>%
   n_distinct()
 
-# 3. Total number of unique patients that are eligible and enrolled
-# *** Does not exclude those that have NA NPI, matches baseline characteristics
+## 3. Total number of unique patients that are eligible ----
+# *** Does not exclude those that have NA NPI
+# *** Does not exclude those that were restricted
+# *** Matches baseline characteristics paper
 # 164,904
 seq_df2 %>% 
   filter(Age >= 18, BMI_use >= 25) %>% 
   pull(Arb_PersonId) %>% 
   n_distinct()
 
-
-# The number of eligible patients in baseline characteristics paper. This is 11
-# more, because 11 extra patients were captured by a modification of the 
-# algorithm that selects which visits on the same day should be counted.
+## 4. The number of eligible patients in baseline characteristics paper. ----
+#  4.1 This is 11 more, because 11 extra patients were captured by a 
+# modification in the order of when visits with NA for provider NPI were 
+# excluded.when compared to baseline characterisitcs 
 # 164,443 
 seq_df2 %>%
      drop_na(ProviderNpi) %>%
@@ -1233,7 +1259,16 @@ seq_df2 %>%
      pull(Arb_PersonId) %>% 
      n_distinct()
 
-# The number of eligible patients in ee vs ene, is different by 11, because
+#  4,2
+# 164,432 using seq_df2
+seq_df2 %>%
+  drop_na(ProviderNpi) %>%
+  filter(Eligible == 1,
+         !Arb_PersonId %in% ids_to_exclude$Arb_PersonId) %>% 
+  pull(Arb_PersonId) %>% 
+  n_distinct()
+
+# 4.3 The number of eligible patients in ee vs ene, is different by 11, because
 # There were 11 that were not captured in baseline char
 # 164,432
 visits %>%
@@ -1241,13 +1276,398 @@ visits %>%
   pull(Arb_PersonId) %>% 
   n_distinct()
 
-# The number of eligible and enrolled patients  
+## 5. The number of eligible and enrolled patients (EE) ---- 
 # 20,383
 visits %>%
   filter(Eligible == 1, Enrolled == 1) %>% 
   pull(Arb_PersonId) %>% 
   n_distinct()
 
+## 6. The number of eligible but not enrolled patients (ENE) ----
+# 6.1
+# If using seq_df2, exclude by ids_to exclude for 11 patients
+# 144,049
+seq_df2 %>%
+  drop_na(ProviderNpi) %>%
+  filter(!Arb_PersonId %in% ee$Arb_PersonId,
+         !Arb_PersonId %in% ids_to_exclude$Arb_PersonId,
+         Eligible == 1,
+         WPV < 1) %>%
+  pull(Arb_PersonId) %>% 
+  n_distinct()
+
+# 6.2
+# The number of eligible but not enrolled patients.
+# Must filter out those that are EE, because Enrolled functions on the visit
+# level not the patient level.
+# 144,049
+visits %>%
+  filter(Eligible == 1, Enrolled == 0,
+         !Arb_PersonId %in% ee$Arb_PersonId) %>% 
+  pull(Arb_PersonId) %>% 
+  n_distinct()
+
+#################################### FENCE ####################################
+# *** Question is, do we want to count or average only the WPVs, from the 
+# the EE patients, or do we want to count or average all the visits from those
+# patients, or only the visits that took place after the Index Date?
+
+# Are visits that take place after an index date considered "eligible" to be 
+# considered for mean, averages, count's etc., because if that's the case
+# then we can use the patient id/and date to filter out visits.
+
+# If not, then we would have to find a way to classify visits, is it just any
+# visit after the index date?
+
+# Currently Eligible just means whether or not the patient met the age and BMI
+# requirements, and is further restricted by whether or not a person's visit was
+# deemed eligible, based on height (too tall or too short) and weight, anyone
+# over 600 lbs.
+# So the things to consider between seq_df2 and visits are 
+# 1. The provider NPI
+# 2. Eligible visits or not
+# 3. WPV greater than or equal to 1.
+# 4. Enrolled, means they are in the study.
+
+
+# --------------------------------EE -------------------------------------------
+# The Average number of WPVs per EE patient ------------------------------------
+# The average number of WPVs per EE patient. This is the number for EE with 
+# valid NPI and restricted eligibility. Includes WPVs only.
+# 1.39
+visits %>%
+  filter(Arb_PersonId %in% ee$Arb_PersonId,
+         WPV >= 1) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  mean(.)
+
+# The Max of number of WPVs for EE patients ------------------------------------
+# Restricting to only WPVs of the EE patients in the ee dataframe
+# Max = 20
+visits %>%
+  filter(Arb_PersonId %in% ee$Arb_PersonId, WPV >= 1) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  max(.)
+
+
+# The time between WPVs for ee patients ----------------------------------------
+# 97.8
+visits %>%
+  filter(Arb_PersonId %in% (visits %>%
+                            filter(Arb_PersonId %in% ee$Arb_PersonId, WPV >= 1) %>%
+                            group_by(Arb_PersonId) %>%
+                            count() %>%
+                            filter(n > 1) %>%
+                            pull(Arb_PersonId))) %>%
+  filter( WPV >= 1) %>%
+  group_by(Arb_PersonId) %>%
+  arrange(EncounterDate) %>%
+  summarise(tbv = mean(diff(EncounterDate))) %>%
+  summarise(mean(tbv))
+
+
+# The number of WPVs during the period -----------------------------------------
+# 31,682, exclude visits with provider NPI
+visits %>%
+  filter(WPV >= 1) %>%
+  nrow()
+
+
+# 32,306, includes visits with provider NPI as NA.
+seq_df2 %>%
+  filter(WPV >= 1) %>%
+  nrow()
+
+# Table of how WPVs were identified (icd-10, OBHPI, etc.) ----------------------
+visits %>%
+  filter(WPV >= 1) %>%
+  select(starts_with("WPV")) %>%
+  gtsummary::tbl_summary()
+
+
+
+# The Average number of any visit per EE patient -------------------------------
+# The average number of any visit per EE patient. This is the number for EE with 
+# valid NPI and restricted eligibility.
+# 3.05
+visits %>%
+  filter(Arb_PersonId %in% ee$Arb_PersonId) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  mean(.)
+
+# The Max of number of any visits for EE patients ------------------------------
+# Restricting to only WPVs of the EE patients in the ee dataframe
+# Max = 56
+visits %>%
+  filter(Arb_PersonId %in% ee$Arb_PersonId) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  max(.)
+
+
+# The time between visits for EE patients --------------------------------------
+# 79.96
+visits %>%
+  filter(Arb_PersonId %in% (visits %>%
+                              filter(Arb_PersonId %in% ee$Arb_PersonId) %>%
+                              group_by(Arb_PersonId) %>%
+                              count() %>%
+                              filter(n > 1) %>%
+                              pull(Arb_PersonId))) %>%
+  group_by(Arb_PersonId) %>%
+  arrange(EncounterDate) %>%
+  summarise(tbv = mean(diff(EncounterDate))) %>%
+  summarise(mean(tbv))
+
+
+# The number of any visit during the period for EE -----------------------------
+# 62,193, excludes visits with provider NPI
+visits %>%
+  filter(Arb_PersonId %in% ee$Arb_PersonId) %>%
+  nrow()
+
+
+# --------------------- ENE ----------------------------------------------------
+# The Average number of any visit per ENE patient ------------------------------
+# This is the number for ENE with valid NPI and restricted eligibility
+# *** do not use ene$Arb_PersonId bc that data frame is only one visit per 
+# person
+# 1.07
+visits %>% 
+  filter(Eligible == 1, 
+         !Arb_PersonId %in% ee$Arb_PersonId) %>% 
+  group_by(Arb_PersonId) %>% 
+  count() %>%
+  pull(n) %>%
+  mean(.)
+
+
+# The Max of number of any visits for ENE patients ------------------------------
+# Restricting to only WPVs of the EE patients in the ee dataframe
+# Max = 24
+visits %>%
+  filter(Eligible == 1, 
+         !Arb_PersonId %in% ee$Arb_PersonId) %>% 
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  max(.)
+
+
+# The time between visits for ENE patients --------------------------------------
+# 79.02
+visits %>%
+  filter(Arb_PersonId %in% (visits %>%
+                              filter(Eligible == 1,
+                                !Arb_PersonId %in% ee$Arb_PersonId) %>%
+                              group_by(Arb_PersonId) %>%
+                              count() %>%
+                              filter(n > 1) %>%
+                              pull(Arb_PersonId))) %>%
+  group_by(Arb_PersonId) %>%
+  arrange(EncounterDate) %>%
+  summarise(tbv = mean(diff(EncounterDate))) %>%
+  summarise(mean(tbv))
+
+
+# The number of any visit during the period for ENE -----------------------------
+# 256,178, excludes visits with provider NPI
+visits %>%
+  filter(Eligible == 1, 
+         !Arb_PersonId %in% ee$Arb_PersonId) %>%
+  nrow()
+
+
+
+
+
+
+
+### LEFT OFF HERE ############################################################
+
+# The average number of days in between visits for those EE with more than one
+# visit.
+# tbv = 94.3 days
+seq_df2 %>% 
+  filter(Arb_PersonId %in% (seq_df2 %>%
+                              filter(WPV >= 1) %>%
+                              group_by(Arb_PersonId) %>%
+                              count() %>%
+                              filter(n > 1) %>%
+                              pull(Arb_PersonId))) %>%
+  filter(WPV >= 1) %>%
+  group_by(Arb_PersonId) %>%
+  arrange(EncounterDate) %>%
+  summarise(tbv = mean(diff(EncounterDate))) %>%
+  summarise(mean(tbv))
+
+
+# The average number of days in between visits for those EE with more than one
+# visit, but restricting only to those reported on in the paper
+# tbv = 65.35 days
+seq_df2 %>% 
+  filter(Arb_PersonId %in% (seq_df2 %>% 
+                              filter(Arb_PersonId %in% ee$Arb_PersonId, WPV >=1) %>%
+                              group_by(Arb_PersonId) %>%
+                              count() %>%
+                              filter(n > 1) %>%
+                              pull(Arb_PersonId))) %>%
+  group_by(Arb_PersonId) %>%
+  arrange(EncounterDate) %>%
+  summarise(tbv = mean(diff(EncounterDate))) %>%
+  summarise(mean(tbv))
+
+
+
+# The total number of visits in EE, should be 32,306 as reported in bl_char
+# Provider_Npi, not filtered out in this value.
+seq_df2 %>%
+  filter(WPV >= 1) %>%
+  nrow()
+
+
+# Average number of visits per EE patient regardless of WPV or not
+visits %>%
+  filter(Arb_PersonId %in% ee$Arb_PersonId) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  mean(.)
+
+
+
+# Average number of visits per ENE patients and includes Eligibility restrictions
+# and providers with NA
+# 2.37
+visits %>%
+  filter(!Arb_PersonId %in% ee$Arb_PersonId) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  mean(.)
+  
+
+
+
+
+
+
+# T-test between the number of visits per patient in EE vs ENE -----------------
+x <- visits %>%
+  filter(Arb_PersonId %in% ee$Arb_PersonId) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n)
+
+y <- visits %>%
+  filter(!Arb_PersonId %in% ee$Arb_PersonId) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n)
+
+
+t.test(x,y)
+
+
+  
+
+
+
+
+
+
+# #################################### FENCE ##################################
+# The average number of visits per ENE patient.
+seq_df2 %>%
+  filter(Eligible == 1, WPV == 0) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  mean(.)
+
+# Min should be 1
+
+# Max of ENE visits 
+seq_df2 %>%
+  filter(Eligible ==1, WPV == 0) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  max(.)
+
+visits %>%
+  filter(Eligible ==1, WPV == 0) %>%
+  group_by(Arb_PersonId) %>%
+  count() %>%
+  pull(n) %>%
+  max(.)
+
+# The average number of days in between visits for those ENE with more than one
+# visit.
+tic()
+seq_df2 %>% 
+  filter(Arb_PersonId %in% (seq_df2 %>%
+                              filter(WPV == 0) %>%
+                              group_by(Arb_PersonId) %>%
+                              count() %>%
+                              filter(n > 1) %>%
+                              pull(Arb_PersonId))) %>%
+  filter(WPV == 0) %>%
+  group_by(Arb_PersonId) %>%
+  arrange(EncounterDate) %>%
+  summarise(tbv = mean(diff(EncounterDate))) %>%
+  summarise(mean(tbv))
 toc()
+
+# The total number of visits in EE, should be 32,306 as reported in bl_char
+# Provider_Npi, not filtered out in this value.
+seq_df2 %>%
+  filter(WPV >= 1) %>%
+  nrow()
+
+seq_df2 %>%
+  filter(WPV >= 1) %>%
+  drop_na(ProviderNpi) %>%
+  nrow()
+
+visits %>%
+  filter(Enrolled == 1) %>%
+  nrow()
+
+# The total number of visits in ENE should be 745,074 - 32,306
+seq_df2 %>%
+  filter(WPV == 0) %>%
+  nrow()
+
+# The total number of visits in ENE
+
+
+
+
+
+toc()
+
+
+
+gc()
+
+
+
+# Remove intermediary data frames-----------------------------------------------
+#rm()
+
+
+
+
+
 # Write file -------------------------------------------------------------------
+data %<>%
+  mutate(Enrolled = ifelse(Enrolled == 1, "EE", "ENE"))
 #save(data, meds_aom.ee, meds_aom.ene, file = here("data", "ee_vs_ene_processed.rda"))
