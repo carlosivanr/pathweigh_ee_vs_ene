@@ -1439,7 +1439,7 @@ visits %>%
 # This is the number for ENE with valid NPI and restricted eligibility
 # *** do not use ene$Arb_PersonId bc that data frame is only one visit per 
 # person
-# 1.07
+# 1.78
 visits %>% 
   filter(Eligible == 1, 
          !Arb_PersonId %in% ee$Arb_PersonId) %>% 
@@ -1447,6 +1447,7 @@ visits %>%
   count() %>%
   pull(n) %>%
   mean(.)
+
 
 
 # The Max of number of any visits for ENE patients ------------------------------
@@ -1485,12 +1486,8 @@ visits %>%
   nrow()
 
 
-
-
-
-
-
-### LEFT OFF HERE ############################################################
+### LEFT OFF HERE ####
+# Need to double check why these statements are here 
 
 # The average number of days in between visits for those EE with more than one
 # visit.
@@ -1560,6 +1557,7 @@ visits %>%
 
 
 # T-test between the number of visits per patient in EE vs ENE -----------------
+# Initially this section did not filter for Eligible == 1
 x <- visits %>%
   filter(Arb_PersonId %in% ee$Arb_PersonId) %>%
   group_by(Arb_PersonId) %>%
@@ -1567,7 +1565,8 @@ x <- visits %>%
   pull(n)
 
 y <- visits %>%
-  filter(!Arb_PersonId %in% ee$Arb_PersonId) %>%
+  filter(Eligible == 1, 
+         !Arb_PersonId %in% ee$Arb_PersonId) %>%
   group_by(Arb_PersonId) %>%
   count() %>%
   pull(n)
