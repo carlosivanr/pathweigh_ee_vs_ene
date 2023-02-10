@@ -1,0 +1,442 @@
+---
+title: "Eligible & Enrolled vs Eligible & Not Enrolled"
+format: 
+  docx:
+    toc: true
+    number-sections: true
+execute:
+    #echo: false
+    warning: false
+    
+echo: false    
+---
+
+<!-- COMMENTS: This .qmd document produces the tables in the ee vs ene paper. It  -->
+
+<!-- relies on the data from the baseline characteristics paper and is produced by  -->
+
+<!-- the 01_make_data_for_ee_vs_ene.R script. -->
+
+```{r}
+# Load Packages ----------------------------------------------------------------
+invisible(
+  pacman::p_load(here,         # For managing directory paths
+               magrittr,     # For the assignment pipe operator %<>%
+               tidyverse,    # For data manipulation tools
+               data.table,   # For reading .csv files
+               openxlsx,     # For reading .xlsx files
+               tictoc,       # For timing and benchmarking functions
+               gtsummary,    # For creating tables
+               flextable,    # For the autofit function
+               furrr)        # For parallel processing
+)
+
+# Set parallel processing
+plan(multisession, workers = 4)
+```
+
+```{r}
+# Load seq_df2 ----------------------------------------------------------------
+load(here("data", "ee_vs_ene_processed2122.rda"))
+```
+
+```{r create table to word function}
+# Set flextable defaults for all tables
+set_flextable_defaults(font.size = 10,
+                       padding = 2,
+                       theme_fun = "theme_vanilla",
+                       table.layout="autofit")
+use_df_printer()
+
+# This function will modify the output dimensions of flextables
+fit_flextable_wordpage <- function(ft, pgwidth = 7){
+  ft_out <- ft 
+  ft_out <- ft_out %>%
+    height_all(height = .5) %>%
+    bg(j = 4, part = "body", bg = "gray95") %>%
+    bg(i = 2, j = 4, part = "header", bg = "gray95") %>%
+    vline(j = 4, part = "all", border = officer::fp_border(color = "white", width = 4))
+  # %>% autofit()
+  # ft_out <- width(ft_out, 
+  #                 width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
+  return(ft_out)
+}
+```
+
+# Demographics
+
+```{r}
+# n.b. Dataset 2022-10-17 has different Race and Ethnicity data. The following
+# are necessary to display the Race and ethnicity data.
+  other_race <- c("American Indian or Alaska Native", "Multiple Race",
+                  "Native Hawaiian and Other Pacific Islander", "Native Hawaiian",
+                  "Other Pacific Islander", "Guamanian or Chamorro", "Samoan")
+  
+  data %<>% 
+    mutate(
+      Race_Ethnicity = ifelse(Ethnicity == "Hispanic, Latino/a, or Spanish Origin", "Hispanic or Latino", Race),
+      Race_Ethnicity = ifelse(is.na(Race_Ethnicity), "Unknown", Race_Ethnicity),
+      Race_Ethnicity = as_factor(Race_Ethnicity),
+      Race_Ethnicity = fct_collapse(Race_Ethnicity,
+                                         `Non-Hispanic White` = "White or Caucasian",
+                                         "Other" = other_race,
+                                          "Unknown" = "",
+                                          "Unknown" = "Patient Refused"))
+
+#
+# Table 1 demographics
+tab1.a <- data %>%
+  select(Age, Sex, Race_Ethnicity, Insurance, Enrolled) %>%
+  tbl_summary(by = Enrolled,
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+              label = list(Race_Ethnicity ~ "Race/Ethnicity",
+                           Age ~ "Age (years)"),
+              missing = "no",
+              sort = list(everything() ~ "frequency")) %>%
+  #add_n(statistic="{N_miss} ({p_miss}%)") %>%
+  #modify_header(n = "**N missing (%)**") %>%
+  bold_labels() %>%
+  add_p(test = list(all_continuous() ~ "t.test")) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Overall**")
+
+
+#Table generating function
+make_sub_tab1 <- function(cohort){
+  table <- data[data$Cohort == cohort,] %>%
+    select(Age, Sex, Race_Ethnicity, Insurance, Enrolled) %>%
+    tbl_summary(by = Enrolled,
+                statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                label = list(Race_Ethnicity ~ "Race/Ethnicity",
+                             Age ~ "Age (years)"),
+                missing = "no",
+                sort = list(everything() ~ "frequency")) %>%
+    #add_n(statistic="{N_miss} ({p_miss}%)") %>%
+    #modify_header(n = "**N missing (%)**") %>%
+    bold_labels() #%>%
+  #add_overall()
+
+  return(table)
+
+  }
+
+# Apply table generating function to all cohorts
+cohorts <- c("Cohort 1", "Cohort 2", "Cohort 3")
+
+tab1_sub_tables <- map(cohorts, make_sub_tab1)
+        
+
+# Merge all Table 1 sub tables
+tab1 <- tbl_merge(tbls = list(tab1.a, 
+                              tab1_sub_tables[[1]], 
+                              tab1_sub_tables[[2]], 
+                              tab1_sub_tables[[3]]),
+          tab_spanner = c("**Overall**", 
+                          "**Sequence 1**", 
+                          "**Sequence 2**", 
+                          "**Sequence 3**"))
+
+# Save Table 1
+# tab1 %>%
+#     as_gt() %>%
+#     gt::gtsave(
+#       filename = here("tables", "ee_vs_ene_table_1.pdf"))
+
+tab1 %>%
+  as_flex_table() %>%
+  fit_flextable_wordpage()
+
+```
+
+\newpage
+
+# Patient Health Characteristics
+
+```{r}
+
+current <- c("Every Day", "Some Days",
+                 "Heavy Smoker", "Light Smoker")
+    
+former <- c("Former")
+    
+never <- c("Never", "Passive Smoke Exposure - Never Smoker")
+    
+unknown <- c("Smoker, Current Status Unknown", "Unknown",
+                 "Never Assessed")
+    
+data$SmokingStatus <- data$Smoking_Status %>%
+    as_factor() %>% 
+    fct_collapse(., 
+                 "Current" = current,
+                 "Former" = former,
+                 "Never" = never,
+                 "Unknown" = unknown) %>%
+    recode_factor(., Unknown = NA_character_) 
+    
+# Patient Health Characteristics -----------------------------------------------
+tab2_cols <- names(data %>% select(Height, Weight_kgs, BMI, HeartRate, Respiratoryrate,
+                            Systolic_blood_pressure, Diastolic_blood_pressure, Temperature,
+                            TSH, Triglycerides, HDL, ALT, AST, A1C, eGFR, N_MedsWeightGain_period,
+                            N_MedsWeightLoss_period, O2CPAPBIPAP, PHQ2_Completed, PHQ8, PHQ9, GAD7, 
+                            SmokingStatus, Enrolled))
+
+tab2.a <- data %>%
+  select(all_of(tab2_cols)) %>%
+  tbl_summary(by = Enrolled,
+              label = list(Height ~ "Height (cm)",
+                           Weight_kgs ~ "Weight (kg)",
+                           BMI ~ "BMI (kg/m^2)",
+                           HeartRate ~ "Heart Rate (bpm)",
+                           Respiratoryrate ~ "Respiratory Rate (rpm)",
+                           Systolic_blood_pressure ~ "Systolic BP (mmHg)",
+                           Diastolic_blood_pressure ~ "Diastolic BP (mmHg)",
+                           N_MedsWeightGain_period ~ "Using meds that cause weight gain",
+                           N_MedsWeightLoss_period ~ "Using meds that cause weight loss",
+                           O2CPAPBIPAP ~ "O2/CPAP/BIPAP Users",
+                           PHQ2_Completed ~ "PHQ2 Completed",
+                           SmokingStatus ~ "Smoking Status",
+                           Temperature ~ "Temperature (F)"),
+              #type = list(all_continuous() ~ "continuous2"),
+              missing = "no",
+              statistic = list(all_continuous() ~ c("{mean} ({sd})")),
+              sort = list(everything() ~ "frequency")) %>%
+  #add_n(statistic="{N_miss} ({p_miss}%)") %>%
+  #modify_header(n = "**N missing (%)**") %>%
+  bold_labels()  %>%
+  add_p(test = list(all_continuous() ~ "t.test")) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Overall**")
+```
+
+```{r}
+# Table 2 generating function
+make_sub_tab2 <- function(cohort){
+  table <- data[data$Cohort == cohort,] %>%
+    select(all_of(tab2_cols)) %>%
+    tbl_summary(by = Enrolled,
+                label = list(Height ~ "Height (cm)",
+                             Weight_kgs ~ "Weight (kg)",
+                             BMI ~ "BMI (kg/m^2)",
+                             HeartRate ~ "Heart Rate (bpm)",
+                             Respiratoryrate ~ "Respiratory Rate (rpm)",
+                             Systolic_blood_pressure ~ "Systolic BP (mmHg)",
+                             Diastolic_blood_pressure ~ "Diastolic BP (mmHg)",
+                             N_MedsWeightGain_period ~ "Using meds that cause weight gain",
+                             N_MedsWeightLoss_period ~ "Using meds that cause weight loss",
+                             O2CPAPBIPAP ~ "O2/CPAP/BIPAP Users",
+                             SmokingStatus ~ "Smoking Status",
+                             PHQ2_Completed ~ "PHQ2 Completed",
+                             Temperature ~ "Temperature (F)"),
+                #type = list(all_continuous() ~ "continuous2"),
+                missing = "no",
+                statistic = list(all_continuous() ~ c("{mean} ({sd})")),
+                sort = list(everything() ~ "frequency")) %>%
+    #add_n(statistic="{N_miss} ({p_miss}%)") %>%
+    #modify_header(n = "**N missing (%)**") %>%
+    bold_labels()
+
+  return(table)
+
+}
+
+# Apply table generating function to all cohorts
+tab2_sub_tables <- future_map(cohorts, make_sub_tab2)
+
+# Merge all Table 1 sub tables
+tab2 <- tbl_merge(tbls = list(tab2.a,
+                              tab2_sub_tables[[1]],
+                              tab2_sub_tables[[2]],
+                              tab2_sub_tables[[3]]),
+                  tab_spanner = c("**Overall**",
+                                  "**Sequence 1**",
+                                  "**Sequence 2**",
+                                  "**Sequence 3**"))
+
+# tab2 %>%
+#   as_gt() %>%
+#   gt::gtsave(
+#     filename = here("tables", "ee_vs_ene_table_2.pdf"))
+
+tab2 %>%
+  as_flex_table() %>% 
+  fit_flextable_wordpage()
+```
+
+\newpage
+
+# Comorbidities
+
+```{r}
+# Table 3 is made up of 4 separate sub tables. From left to right these are 
+# tab3.a, sub_table 3.b.1., sub_table 3.b.2, and sub_table 3.b.3. All tables 
+# are then concatenated row wise.
+
+# Load the top comorbidities .csv file
+top_comorbidities <- read.csv(here("../baseline_characteristics/working_files/top_comorbidities_220121.csv"))
+newnames <- top_comorbidities$disease.state
+oldnames <- gsub(" ", ".", top_comorbidities$disease.state)
+
+tab3.a <- data %>%
+  select(all_of(top_comorbidities$disease.state), Enrolled) %>%
+  select(-Asthma, -`Vitamin D deficiency`) %>%
+  tbl_summary(by = Enrolled) %>%
+  add_p(test = list(all_continuous() ~ "t.test")) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Overall**")
+
+# #Table 3 generating function
+make_sub_tab3.b <- function(cohort){
+  table <- data[data$Cohort == cohort,] %>%
+    select(all_of(top_comorbidities$disease.state), Enrolled) %>%
+    select(-Asthma, -`Vitamin D deficiency`) %>%
+    tbl_summary(by = Enrolled) %>%
+    bold_labels()
+    
+    return(table)
+  
+}
+
+# Apply table generating function to all cohorts
+tab3.b_sub_tables <- future_map(cohorts, make_sub_tab3.b)
+
+# Merge all Table 1 sub tables
+tab3 <- tbl_merge(tbls = list(tab3.a,
+                              tab3.b_sub_tables[[1]],
+                              tab3.b_sub_tables[[2]],
+                              tab3.b_sub_tables[[3]]),
+                  tab_spanner = c("**Overall**",
+                                  "**Sequence 1**",
+                                  "**Sequence 2**",
+                                  "**Sequence 3**"))
+
+tab3 %>%
+  as_flex_table() %>% 
+  fit_flextable_wordpage()
+```
+
+\newpage
+
+# Referrals, Procedures, and Medications
+
+```{r}
+# Table 4 is made up of 2 separate sub tables. The following code produces 
+# the first sub table 4.1
+
+# Table 4.1 is in turn made from 4 individual sub tables that are concatenated
+# rowwise, Table 4.1.a, 4.1.b.1, 4.1.b.2, and 4.1.b.3.
+
+
+# Apply table generating function to all cohorts
+cohorts <- c("Cohort 1", "Cohort 2", "Cohort 3")
+
+# Part A -----------------------------------------------------------------------
+# Referrals & Procedures
+tab4.1.a <- data %>%
+  select(Enrolled,Ref_BariatricSurgery:Ref_WellnessClinic, BariatricSurgery) %>%
+  tbl_summary(by = Enrolled,
+              type = all_continuous() ~ "continuous2",
+              missing="ifany",
+              label = list(Ref_BariatricSurgery ~ "Bariatrics",
+                           Ref_BehavioralHealth ~ "Behavioral Health",
+                           Ref_Endo ~ "Endocrinology",
+                           Ref_Dietician ~ "Dietician",
+                           Ref_WellnessClinic ~ "Health and Wellness",
+                           BariatricSurgery ~ "Bariatric procedure performed")) %>%
+  add_p(test = list(all_continuous() ~ "t.test")) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Overall**")
+# modify_header(label = "**Referrals**")
+
+# Part B -----------------------------------------------------------------------
+# #Table 4 generating function
+make_sub_tab4.1.b <- function(cohort){
+  table <- data[data$Cohort == cohort,] %>%
+    select(Enrolled,Ref_BariatricSurgery:Ref_WellnessClinic, BariatricSurgery) %>%
+    tbl_summary(by = Enrolled,
+                type = all_continuous() ~ "continuous2",
+                missing="ifany",
+                label = list(Ref_BariatricSurgery ~ "Bariatrics",
+                             Ref_BehavioralHealth ~ "Behavioral Health",
+                             Ref_Endo ~ "Endocrinology",
+                             Ref_Dietician ~ "Dietician",
+                             Ref_WellnessClinic ~ "Health and Wellness",
+                             BariatricSurgery ~ "Bariatric procedure performed")) %>%
+    bold_labels()
+  
+  return(table)
+  
+}
+
+
+# Apply table generating function to all cohorts
+tab4.1.b_sub_tables <- future_map(cohorts, make_sub_tab4.1.b)
+
+# Merge all Table 4.1 sub tables -----------------------------------------------
+tab4.1 <- tbl_merge(tbls = list(tab4.1.a,
+                              tab4.1.b_sub_tables[[1]],
+                              tab4.1.b_sub_tables[[2]],
+                              tab4.1.b_sub_tables[[3]]),
+                  tab_spanner = c("**Overall**",
+                                  "**Sequence 1**",
+                                  "**Sequence 2**",
+                                  "**Sequence 3**"))
+```
+
+```{r, echo = FALSE}
+# Table 4 is made up of 2 separate sub tables. The following code produces 
+# the second sub table 4.2
+
+# Table 4.2 is in turn made from 4 individual sub tables that are concatenated
+# rowise, Table 4.2.a, 4.2.b.1, 4.2.b.2, and 4.2.b.3.
+
+#Make table 4.2
+# Part A -----------------------------------------------------------------------
+tab4.2.a <-  data %>%
+  select(Enrolled, all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))) %>%
+  mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
+            ~replace(., is.na(.),0)) %>%
+  mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
+            ~replace(., . == 2, 1)) %>%
+  tbl_summary(by = Enrolled) %>%
+  add_p(test = list(all_continuous() ~ "t.test")) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Overall**") %>%
+  bold_labels()
+
+
+# Part B -----------------------------------------------------------------------
+# Table 4.2 generating function
+make_sub_tab4.2.b <- function(cohort){
+  table <- data[data$Cohort == cohort,] %>%
+    select(Enrolled, all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))) %>%
+    mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
+              ~replace(., is.na(.),0)) %>%
+    mutate_at(vars(all_of(names(meds_aom.ee %>% select(-Arb_PersonId)))),
+          ~replace(., . == 2, 1)) %>%
+    tbl_summary(by = Enrolled) %>%
+    bold_labels()
+  
+  return(table)
+  
+}
+
+# Apply table generating function to all cohorts
+tab4.2.b_sub_tables <- future_map(cohorts, make_sub_tab4.2.b)
+
+
+# Merge all Table 4.2 sub tables -----------------------------------------------
+tab4.2 <- tbl_merge(tbls = list(tab4.2.a,
+                                tab4.2.b_sub_tables[[1]],
+                                tab4.2.b_sub_tables[[2]],
+                                tab4.2.b_sub_tables[[3]]),
+                    tab_spanner = c("**Overall**",
+                                    "**Sequence 1**",
+                                    "**Sequence 2**",
+                                    "**Sequence 3**"))
+
+```
+
+```{r}
+# Table 4 is made up of 2 separate sub tables. The following code stacks tables
+# 4.1 and 4.2 column wise to produce the final table
+tab4 <- tbl_stack(list(tab4.1, tab4.2))
+
+tab4 %>%
+  as_flex_table() %>% 
+  fit_flextable_wordpage()
+```
